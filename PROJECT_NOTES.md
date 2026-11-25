@@ -11,9 +11,8 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - `npx deepspace test run all --port 5181`: 13/13 pass (101 unit tests), including `tests/battle.spec.ts` (3-user set-and-match battle with network-level leak checks and feed reel swipe/arrow/vote checks, ~1.6 min, plus a 375px layout check; and a cancel-invite test that re-challenges the pair). 
 - Test accounts (by name in the spec): "Player A" = fi-skillclash-a@deepspace.test, "Player B" = fi-skillclash-b@deepspace.test, "Voter C" = voter-c@deepspace.test (stored in `~/.deepspace/test-accounts.json`).
 - Email delivery not yet confirmed in production logs (no real battle finished on prod). Test-mode battles send no email (D48).
-- Deployed and pushed at dcaf8e9 (2026-11-25): set-and-match rules (b3323c1) plus D55 (compact locked rounds, blind accept copy, reload banner). Live bundle verified to carry the new copy. Prod sweep logs `active=2 invited=0 ... failed=0`. Working tree clean.
-- **Not yet checked by a person:** the D55 fix on a fully reloaded tab (the reported accept-panel bug was a stale tab), the set-and-match flow on a real phone (record in the challenge form and accept panel, "Match this"), the earlier phone checks (expanded rounds, Expires in, Cancel flow), and video playback in desktop Chrome (D43).
-- Deployed and pushed at af741ed (2026-11-25): stored stats, reels feed, points sort. Prod backfill ran once: `battles=0 counted=0` (no battle had completed on prod yet; 3 active). Marker written, so later completions count via the hook.
+- **Latest deploy: 8349507 (2026-11-25), pushed to main**, live bundle verified: one-screen snapping "Voting now" cards, scroll reset/restore (D59, D60), hero copy. Earlier the same day: 045ced7 (iOS zoom fix, profile tiles), af741ed (stored stats, reels feed, points sort; prod backfill ran with `battles=0`, marker written), dcaf8e9 (D55). Working tree clean apart from this notes commit.
+- **Not yet checked by a person:** everything in Next steps marked "On a phone", the D55 fix on a fully reloaded tab, and video playback in desktop Chrome (D43).
 - Decisions D1–D60 in `docs/DECISIONS.md`.
 
 ## Recent changes
@@ -63,6 +62,7 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - [ ] HEVC iPhone videos may not play in desktop Chrome; no fallback UI yet (D49).
 
 ## Gotchas
+- Local test data persists between runs. If a battle spec run dies midway, the next run's challenge fails with "You already have an open battle with @…". Fix: run `npx deepspace dev start --port 5180` until the logs show `battle-sweep active=0 invited=0` (test battles finish in ≤10 min), stop it, rerun. There is no `deepspace dev stop`; kill the 5180 process.
 - A synthetic touch swipe sent while a smooth `scrollTo` is still running is swallowed; specs wait for the reel track to settle first (`settledAt`).
 - A bug report that shows copy not in `src` is probably a stale tab: grep the live bundle (`curl /home`, then its `assets/index-*.js` and chunks) before changing code.
 - `challenge`/`acceptChallenge` now need a video; specs send challenges through the form (`sendChallenge` in `battle.spec.ts`). The spec's `sniff()` records responses and WS frames to prove a secret never reached a browser.
