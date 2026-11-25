@@ -1,16 +1,16 @@
 /**
- * Scroll position for the app shell (D60).
+ * Scroll position for the app (D60).
  *
- * The shell scrolls inside `<main id="app-main">`, not the window, so React
- * Router's <ScrollRestoration> (window only) doesn't apply. Rules:
+ * The window is the only vertical scroller (no inner scroll containers: they
+ * break iOS Safari's tap-to-top, pull-to-refresh and gesture hand-off). Rules:
  *   - a new navigation (push/replace) starts at the top;
- *   - back/forward (POP) restores that history entry's position;
+ *   - back/forward (POP) restores that history entry's window position;
  *   - signing in resets to the top;
  *   - while signed out, closing the keyboard (a field loses focus and no other
  *     field takes it) resets to the top, because iOS Safari scrolls the
  *     window to make room for the keyboard and leaves it there.
- * Every reset also zeroes the window scroll, which is where iOS leaves that
- * keyboard offset.
+ * We keep our own per-entry positions (the browser's automatic restoration is
+ * turned off) because content loads after the route renders.
  */
 
 import { useEffect, useLayoutEffect, useRef } from 'react'
@@ -19,18 +19,15 @@ import { useAuth } from 'deepspace'
 
 export const MAIN_ID = 'app-main'
 
-function main(): HTMLElement | null {
-  return typeof document === 'undefined' ? null : document.getElementById(MAIN_ID)
+/** Jump (no smooth animation: html has scroll-behavior: smooth) to `top`. */
+function jumpTo(top: number): void {
+  window.scrollTo({ top, left: 0, behavior: 'instant' as ScrollBehavior })
 }
 
-/** Scroll the window and the app's main area to the very top. */
+/** Scroll the window to the very top. */
 export function resetScroll(): void {
   if (typeof window === 'undefined') return
-  window.scrollTo(0, 0)
-  document.documentElement.scrollTop = 0
-  document.body.scrollTop = 0
-  const m = main()
-  if (m) m.scrollTop = 0
+  jumpTo(0)
 }
 
 function isField(el: Element | null): boolean {
@@ -42,29 +39,34 @@ export function ScrollManager() {
   const navType = useNavigationType()
   const { isSignedIn } = useAuth()
   const saved = useRef(new Map<string, number>())
+  // The entry on screen now; a late scroll event from the old page's listener
+  // (e.g. the reset itself) must not overwrite that page's saved position.
+  const current = useRef(location.key)
+
+  useEffect(() => {
+    if ('scrollRestoration' in history) history.scrollRestoration = 'manual'
+  }, [])
 
   // Remember each history entry's position as the user scrolls.
   useEffect(() => {
-    const m = main()
-    if (!m) return
     const key = location.key
-    const onScroll = () => saved.current.set(key, m.scrollTop)
-    m.addEventListener('scroll', onScroll, { passive: true })
-    return () => m.removeEventListener('scroll', onScroll)
+    const onScroll = () => {
+      if (current.current === key) saved.current.set(key, window.scrollY)
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
   }, [location.key])
 
   // New navigation → top. Back/forward → restore (retrying while content loads).
   useLayoutEffect(() => {
+    current.current = location.key
     const target = navType === 'POP' ? saved.current.get(location.key) : undefined
     if (target === undefined) return resetScroll()
-    window.scrollTo(0, 0)
     let tries = 0
     let timer: ReturnType<typeof setTimeout>
     const restore = () => {
-      const m = main()
-      if (!m) return
-      m.scrollTop = target
-      if (Math.abs(m.scrollTop - target) > 2 && ++tries < 20) timer = setTimeout(restore, 50)
+      jumpTo(target)
+      if (Math.abs(window.scrollY - target) > 2 && ++tries < 20) timer = setTimeout(restore, 50)
     }
     restore()
     return () => clearTimeout(timer)

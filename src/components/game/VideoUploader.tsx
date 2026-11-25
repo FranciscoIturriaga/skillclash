@@ -9,7 +9,7 @@
 
 import { useRef, useState, type ChangeEvent } from 'react'
 import { useAuth, useR2Files } from 'deepspace'
-import { Upload, Video } from 'lucide-react'
+import { Camera, Video } from 'lucide-react'
 import { Button, Input } from '@/components/ui'
 import { callAction } from '../../lib/api'
 import { APP_ID } from '../../constants'
@@ -119,7 +119,7 @@ export function VideoPicker({
   onChange,
   disabled,
   progress,
-  label = 'Record or choose a video',
+  label = 'Record video',
 }: {
   value: PickedVideo | null
   onChange: (v: PickedVideo | null) => void
@@ -131,6 +131,10 @@ export function VideoPicker({
   const inputRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<string | null>(null)
   const busy = progress != null
+  // Desktop browsers ignore `capture` and open a file chooser.
+  const [touch] = useState(
+    () => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches,
+  )
 
   async function pick(e: ChangeEvent<HTMLInputElement>) {
     setError(null)
@@ -151,6 +155,9 @@ export function VideoPicker({
         ref={inputRef}
         type="file"
         accept="video/*"
+        // Phones open the camera straight away (no gallery). Friction, not
+        // anti-cheat: desktop ignores it and a determined user can get around it (D61).
+        capture="environment"
         className="sr-only"
         data-testid="video-input"
         onChange={pick}
@@ -180,8 +187,13 @@ export function VideoPicker({
           onClick={() => inputRef.current?.click()}
           disabled={disabled}
         >
-          <Upload className="size-4" aria-hidden /> {label}
+          <Camera className="size-4" aria-hidden /> {label}
         </Button>
+      )}
+      {!value && !touch && (
+        <p className="text-sm text-muted-foreground" data-testid="record-on-phone">
+          Record on your phone for the best experience.
+        </p>
       )}
       {busy && (
         <div className="h-2 overflow-hidden rounded-full bg-secondary" role="progressbar" aria-valuenow={progress ?? 0} aria-valuemin={0} aria-valuemax={100}>

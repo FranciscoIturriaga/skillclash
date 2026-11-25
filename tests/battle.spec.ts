@@ -80,7 +80,10 @@ async function sendChallenge(page: Page, opponent: string, skill: string): Promi
   await expect(page.getByTestId('send-challenge')).toBeDisabled() // a video is required
   const form = page.getByTestId('challenge-form')
   await expect(form).toContainText('Show them the skill: record it now')
-  await expect(form.getByRole('button', { name: 'Record or choose a video' })).toBeVisible()
+  await expect(form.getByRole('button', { name: 'Record video' })).toBeVisible()
+  // Phones open the camera directly (D61).
+  await expect(form.getByTestId('video-input')).toHaveAttribute('capture', 'environment')
+  await expect(form.getByTestId('video-input')).toHaveAttribute('accept', 'video/*')
   await page.getByTestId('challenge-form').getByTestId('video-input').setInputFiles(CLIP)
   await page.getByTestId('send-challenge').click()
   await page.waitForURL(/\/battle\/[A-Za-z0-9]+$/, { timeout: 30_000 })
@@ -136,6 +139,7 @@ async function submitRound(page: Page, round: number) {
   const section = page.getByTestId(`round-${round}`)
   await expect(section.getByTestId('video-uploader')).toBeVisible({ timeout: 30_000 })
   if (round === 3) await section.getByLabel('Your freestyle skill').fill('Handstand')
+  await expect(section.getByTestId('video-input')).toHaveAttribute('capture', 'environment')
   await section.getByTestId('video-input').setInputFiles(CLIP)
   await section.getByTestId('submit-video').click()
   await expect(section.getByTestId('submitted-hidden').or(section.getByTestId(`round-${round}-phase`).filter({ hasText: 'Voting' }))).toBeVisible({ timeout: 30_000 })
@@ -197,9 +201,12 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   // The accept panel has a visible, working video recorder/uploader (D55).
   const panel = b.page.getByTestId('invite-panel')
   await expect(panel).toContainText('Show them the skill: record it now')
-  await expect(panel.getByRole('button', { name: 'Record or choose a video' })).toBeVisible()
+  await expect(panel.getByRole('button', { name: 'Record video' })).toBeVisible()
   await expect(panel).toContainText('Max 20 seconds and 50 MB. Record in 1080p')
   await expect(panel.getByTestId('video-input')).toHaveAttribute('accept', 'video/*')
+  await expect(panel.getByTestId('video-input')).toHaveAttribute('capture', 'environment')
+  // Desktop (no touch) ignores capture, so it suggests the phone.
+  await expect(panel.getByTestId('record-on-phone')).toHaveText('Record on your phone for the best experience.')
   await expect(b.page.getByTestId('invite-copy')).toContainText("Accept by recording your round 2 skill. You'll see their skill when round 1 starts.")
   // Locked rounds: one compact line each, worded for B, never "round 0".
   await expect(b.page.getByTestId('round-1-skill')).toHaveText(`Set by @${nameA}. Revealed when you accept`)
@@ -262,14 +269,24 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   await expect(a.page.getByTestId('round-1-phase')).toHaveText('Voting', { timeout: 20_000 })
 
   const feedCard = (p: Page) => p.locator(`[data-testid="feed-vote-card"][data-battle-id="${id}"]`)
-  // Bring the Voting now list to the top of the screen and its slot for this
-  // battle into the list, the way a phone user lands on it (D59).
+  // Scroll the window so this battle's slot sits right under the sticky top
+  // bar, where the page's snap point puts it (scroll-margin-top, D59).
   const showCard = (p: Page) =>
-    feedCard(p).evaluate((el) => {
-      const list = el.closest('[data-testid="voting-now-list"]') as HTMLElement
-      list.scrollIntoView({ block: 'start' })
-      list.scrollTop = (el.parentElement as HTMLElement).offsetTop
-    })
+    feedCard(p).evaluate(
+      (el) =>
+        new Promise<void>((res) => {
+          ;(el.parentElement as HTMLElement).scrollIntoView({ block: 'start', behavior: 'instant' as ScrollBehavior })
+          requestAnimationFrame(() => requestAnimationFrame(() => res()))
+        }),
+    )
+  // No nested vertical scroll areas: only the window scrolls (D60). The reel
+  // track scrolls sideways only (overflow-y hidden).
+  const verticalScrollers = (p: Page) =>
+    p.evaluate(() =>
+      Array.from(document.querySelectorAll('#app-main, #app-main *, [data-testid="app-header"] *'))
+        .filter((el) => ['auto', 'scroll'].includes(getComputedStyle(el).overflowY))
+        .map((el) => el.getAttribute('data-testid') ?? el.tagName),
+    )
   const cViewport = c.page.viewportSize()!
   await c.page.setViewportSize({ width: 375, height: 667 }) // iPhone SE
   await Promise.all([
@@ -325,6 +342,21 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
       await swipe(Math.round(box.width * 0.8))
       await expect(indicator).toHaveText('1/2')
       await settledAt(0)
+      // A vertical swipe that starts on the video scrolls the page, not the reel.
+      const yBefore = await c.page.evaluate(() => window.scrollY)
+      const vbox = (await card.getByTestId('reel-slide-a').getByTestId('reel-video-box').boundingBox())!
+      await cdp.send('Input.synthesizeScrollGesture', {
+        x: Math.round(vbox.x + vbox.width / 2),
+        y: Math.round(vbox.y + vbox.height / 2),
+        xDistance: 0,
+        yDistance: 400, // finger moves down: the page scrolls up, out of the card
+        gestureSourceType: 'touch',
+        speed: 1500,
+      })
+      await expect.poll(() => c.page.evaluate(() => window.scrollY)).toBeLessThan(yBefore - 100)
+      await expect(indicator).toHaveText('1/2')
+      await showCard(c.page)
+      await settledAt(0)
       // Vote for A from the feed: "You voted", and both buttons lock.
       await card.getByTestId('reel-vote-a').click()
       await expect(card.getByTestId('reel-vote-a')).toHaveText(/You voted/, { timeout: 15_000 })
@@ -343,16 +375,18 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   await aFeed.close()
   // The whole card fits one phone screen with the vote button visible, at
   // iPhone SE and iPhone 14 sizes ("You voted" line included, the tallest case).
+  expect(await verticalScrollers(c.page)).toEqual([])
   for (const size of [{ width: 375, height: 667 }, { width: 390, height: 844 }]) {
     await c.page.setViewportSize(size)
     await showCard(c.page)
     const card = feedCard(c.page)
-    const mainBox = (await c.page.locator('#app-main').boundingBox())!
+    const bar = (await c.page.getByTestId('app-header').boundingBox())!
+    expect(bar.y, `sticky top bar at ${size.width}x${size.height}`).toBe(0)
     const cardBox = (await card.boundingBox())!
     const header = (await card.getByTestId('battle-card').boundingBox())!
     const button = (await card.getByTestId('reel-vote-a').boundingBox())!
     const video = (await card.getByTestId('reel-slide-a').getByTestId('reel-video-box').boundingBox())!
-    expect(header.y, `header at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(mainBox.y - 1)
+    expect(header.y, `header at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(bar.y + bar.height - 1)
     expect(button.y + button.height, `vote button at ${size.width}x${size.height}`).toBeLessThanOrEqual(size.height)
     expect(cardBox.y + cardBox.height).toBeLessThanOrEqual(size.height + 1)
     expect(Math.abs(video.width / video.height - 9 / 16)).toBeLessThan(0.02)
@@ -448,23 +482,29 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   const overflow = await c.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
   expect(overflow).toBeLessThanOrEqual(0)
 
-  // Scroll: a new navigation starts at the top; back restores the position (D60).
+  // Scroll: the window scrolls; a new navigation starts at the top; back
+  // restores the position (D60). A signed-in load opens with the top bar at the top.
+  await a.page.setViewportSize({ width: 375, height: 667 })
   await a.page.goto('/home')
-  const mainEl = a.page.locator('#app-main')
   await expect(a.page.getByTestId('battle-card').first()).toBeVisible({ timeout: 20_000 })
-  const before = await mainEl.evaluate((m) => {
-    m.scrollTop = Math.min(300, m.scrollHeight - m.clientHeight)
-    return m.scrollTop
+  expect(await a.page.evaluate(() => window.scrollY)).toBe(0)
+  expect((await a.page.getByTestId('app-header').boundingBox())!.y).toBe(0)
+  expect(await verticalScrollers(a.page)).toEqual([])
+  const windowY = () => a.page.evaluate(() => window.scrollY)
+  const before = await a.page.evaluate(() => {
+    window.scrollTo({ top: Math.min(300, document.documentElement.scrollHeight - window.innerHeight), behavior: 'instant' as ScrollBehavior })
+    return window.scrollY
   })
   expect(before).toBeGreaterThan(0)
+  // The top bar stays at the top while the page scrolls.
+  expect((await a.page.getByTestId('app-header').boundingBox())!.y).toBe(0)
   // Click without Playwright's auto-scroll, like a tap at that position.
   await a.page.getByTestId('battle-card').first().evaluate((a) => (a as HTMLElement).click())
   await a.page.waitForURL(/\/battle\//)
-  await expect.poll(() => mainEl.evaluate((m) => m.scrollTop)).toBe(0)
-  expect(await a.page.evaluate(() => window.scrollY)).toBe(0)
+  await expect.poll(windowY).toBe(0)
   await a.page.goBack()
   await a.page.waitForURL(/\/home$/)
-  await expect.poll(() => mainEl.evaluate((m) => m.scrollTop), { timeout: 5_000 }).toBeGreaterThan(before - 5)
+  await expect.poll(windowY, { timeout: 5_000 }).toBeGreaterThan(before - 5)
 
   // Profile tiles at 375px: same height, numbers on one line per row even
   // though "Round wins" wraps.

@@ -37,8 +37,9 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - **Emails** (`src/battle/notify.ts`): recipient emails read server-side only; actions never return raw `users` rows. Result email fires once via the `battle_completed` event of the winning transition.
 - **Setter rules (D53):** `state.rules = 2` marks new battles. Never put an unrevealed skill in the battle state: the server passes it into the action that opens the round (`accept.round1Skill`, `nextSkill`). Battles without `rules` are legacy (D54).
 - **Stats (D56):** never increment `player_stats`; write a ledger row then recount (`recordBattleStats` in `src/battle/stats.ts`). Any new completion path must call it.
-- **Scroll container (D60):** the page scrolls inside `<main id="app-main">`, not the window. Scroll resets go through `resetScroll()` in `src/components/ScrollManager.tsx`; don't add React Router's `ScrollRestoration`.
-- **Feed card height (D59):** cards are sized by `100cqh` of `<main>`; anything added to a card must shrink the video area (`flex-1 min-h-0`), never push the vote button off screen.
+- **Scrolling (D59, D60):** the window is the only vertical scroller; never add an inner `overflow-y` scroller (nested scrollers broke iOS Safari). Top bar is sticky; resets go through `resetScroll()` (`window.scrollTo`, instant) in `src/components/ScrollManager.tsx`.
+- **Feed card height (D59):** slots are `.feed-snap` (`100svh - --app-header-h`, `y proximity` snap on `<html>`); anything added to a card must shrink the video area (`flex-1 min-h-0`), never push the vote button off screen.
+- **Video inputs (D61):** `capture="environment"` on `VideoPicker`; friction only, not anti-cheat.
 - **Locked rounds** are one-line rows; their copy comes from `lockedRoundCopy()` in `src/battle/view.ts` and is worded per viewer (D55).
 - **Stale tabs:** `src/components/UpdateBanner.tsx` (prod only) compares the loaded `/assets/index-*.js` with the live one and offers Reload; it never forces a reload (D55).
 - **Invites:** cancel (challenger only) and expiry (`inviteExpiresAt` in state; `inviteDeadline()` falls back to createdAt + window for old rows) both free the pair rule. No emails for either (D50, D51).

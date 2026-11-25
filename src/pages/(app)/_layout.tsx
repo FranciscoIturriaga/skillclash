@@ -15,7 +15,7 @@
  * their own layout without inheriting it.
  */
 
-import { Suspense, type ReactNode } from 'react'
+import { Suspense, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { Outlet } from 'react-router-dom'
 import { DeepSpaceAuthProvider, useAuthStatus } from 'deepspace'
 import { RecordProvider, RecordScope, AgentTools } from 'deepspace'
@@ -34,15 +34,16 @@ export default function AppLayout() {
           when <Seo> unmounts, so every route without <Seo> sets its own. */}
       <title>{APP_NAME}</title>
       <AuthBoot>
-        {/* h-dvh, not h-screen: on iPhone Safari 100vh is taller than the
-            visible area, so the window itself could scroll and hide the nav. */}
-        <div className="flex h-dvh flex-col bg-background overflow-hidden">
+        {/* The window scrolls (D60): no inner scroll containers, so iOS keeps
+            tap-the-status-bar-to-top, pull-to-refresh and its address bar. */}
+        <div className="flex min-h-svh flex-col bg-background">
           <ScrollManager />
-          <Navigation />
-          <UpdateBanner />
-          {/* container-type: size lets the feed size cards to this area (100cqh). */}
-          <main id={MAIN_ID} className="flex-1 overflow-y-auto min-h-0 [container-type:size]">
-            <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground">Loading...</div>}>
+          <StickyHeader>
+            <Navigation />
+            <UpdateBanner />
+          </StickyHeader>
+          <main id={MAIN_ID} className="flex-1">
+            <Suspense fallback={<div className="flex items-center justify-center py-24 text-muted-foreground">Loading...</div>}>
               {/* Inside <main> so the nav (and sign-out) stays usable while a
                   new player picks a username. */}
               <UsernameGate>
@@ -53,6 +54,30 @@ export default function AppLayout() {
         </div>
       </AuthBoot>
     </DeepSpaceAuthProvider>
+  )
+}
+
+/**
+ * Top bar (nav + update banner), stuck to the top of the window. Its height is
+ * published as `--app-header-h` on <html>, which sizes "Voting now" cards and
+ * their snap offset (D59), so they stay right even while the banner shows.
+ */
+function StickyHeader({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const set = () => document.documentElement.style.setProperty('--app-header-h', `${el.offsetHeight}px`)
+    set()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(set)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  return (
+    <div ref={ref} data-testid="app-header" className="sticky top-0 z-40">
+      {children}
+    </div>
   )
 }
 

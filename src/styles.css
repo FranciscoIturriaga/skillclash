@@ -284,3 +284,25 @@
     font-size: 16px;
   }
 }
+
+/*
+ * Window scrolling with a gentle snap (D59, D60). Only "Voting now" cards
+ * declare snap points (`.feed-snap`), so proximity snapping does nothing
+ * anywhere else, and scrolling up past the first card moves freely. Never
+ * `mandatory` and never `scroll-snap-stop: always`: on iOS Safari those trap
+ * the gesture. `--app-header-h` is the sticky top bar's height, measured by
+ * the app layout; 49px (nav 48 + border) until it is.
+ */
+:root {
+  --app-header-h: 49px;
+}
+html {
+  scroll-snap-type: y proximity;
+}
+.feed-snap {
+  scroll-snap-align: start;
+  scroll-margin-top: var(--app-header-h);
+  /* svh, not dvh: the card keeps its height while Safari's address bar
+     shows and hides, so the page never jumps or leaves a gap. */
+  height: calc(100svh - var(--app-header-h));
+}

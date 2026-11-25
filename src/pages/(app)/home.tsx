@@ -184,14 +184,11 @@ function VotingNow({ viewerId }: { viewerId: string | null }) {
           description="When both players in a round have filmed, the videos drop here and anyone can vote."
         />
       ) : (
-        // Reels: one card per screen (100cqh = the area under the nav), snapping
-        // vertically. Its own scroller, so the page above scrolls normally (D59).
-        <div
-          data-testid="voting-now-list"
-          className="no-scrollbar relative h-[100cqh] snap-y snap-mandatory overflow-y-auto"
-        >
+        // Reels: each card is one screen tall under the sticky top bar and is
+        // a gentle snap point on the page itself. No inner scroller (D59).
+        <div data-testid="voting-now-list">
           {sorted.map((r) => (
-            <div key={r.id} className="h-full snap-start snap-always py-2" data-testid="voting-now-slot">
+            <div key={r.id} className="feed-snap py-2" data-testid="voting-now-slot">
               <FeedVoteCard battleId={r.id} state={r.state} viewerId={viewerId} />
             </div>
           ))}
