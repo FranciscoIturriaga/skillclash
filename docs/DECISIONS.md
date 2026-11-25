@@ -99,3 +99,60 @@ Decisions made during setup without the product owner present. Each entry record
 
 - **Finding:** The docs say to send as `skillclash@app.space`. The live `npx deepspace integrations info email/send` says the sender is always `DeepSpace Apps <notifications@updates.app.space>` and any `from` is ignored. Cost is $0.013 per email, billed to the owner's credits (500 free credits = $5 ≈ 380 emails).
 - **Decided (plan):** If we add email notifications (challenge received, round revealed), expect the fixed sender and put SkillClash branding in the subject and body. Treat email as optional for the MVP.
+
+---
+
+## MVP build session — 2026-11-24
+
+### Decisions handed to me by the product owner
+
+#### D14. Video reveal: "public with link" files, key hidden until reveal (resolves D8)
+
+- **Decided (by owner):** Videos upload as public-with-link files (`'app'` scope) under an unguessable key. The key is stored only on a `submissions` record that the server hides from everyone except the uploader until the round's submission window ends; then it is revealed.
+- **Accepted tradeoff:** A player could share their own link early. That only helps their opponent.
+- **Alternatives (from D8):** copy from `'self'` scope at reveal (25 MiB server-side cap), or a custom R2 binding with our own access checks (more work).
+
+#### D15. Concurrency: transitions table (confirms D10)
+
+- **Decided (by owner):** One accepted transition per battle version via a `battle_transitions` collection with `uniqueOn: ['battleId', 'fromVersion']`. A second concurrent attempt gets a conflict error.
+
+#### D16. Upload limits: 20 seconds, 50 MB, `accept="video/*"`
+
+- **Decided (by owner):** Client-side checks for ≤20 s duration and ≤50 MB size, with a clear error. A plain file input with `accept="video/*"` so phones offer "record" or "choose from library". A hint tells players to record in 1080p.
+- **Note:** This replaces the ≤60 s / ≤25 MiB plan in D9. 1 GiB of storage ≈ 20 videos at the 50 MB cap, about 3 full battles at worst; typical 20 s phone clips are 10–40 MB.
+
+### Phase 1: state machine
+
+#### D17. When skills are named
+
+- **Decided:** Player A names round 1's skill in the challenge. Player B names round 2's skill when accepting (it must differ from round 1, compared case-insensitively after trimming). Round 3 is freestyle: each player types their skill name on their own submission.
+- **Why:** GAME_RULES says who picks, not when. Naming at challenge/accept time avoids extra "waiting for skill" phases with their own deadlines and missed-deadline rules, which GAME_RULES does not define.
+- **Alternatives:** A separate skill-picking phase before rounds 1 and 2, with its own timer. Rejected: more states, and the rules don't say what happens if the picker never picks.
+
+#### D18. Rounds run one after another
+
+- **Decided:** Round N+1's submission window opens at the moment round N closes (after its voting, or immediately on a forfeit / both-missed). A Standard battle where everyone submits late takes up to 3 × (12 h + 3 h) = 45 h.
+- **Why:** GAME_RULES doesn't say whether rounds overlap. Sequential is the simplest model to explain and test, and players see the previous result before the next round.
+- **Alternatives:** Open round N+1's submissions as soon as round N's voting opens (faster battles, but two live phases at once).
+
+#### D19. Late sweeps are anchored to the deadline, not to "now"
+
+- **Decided:** When a submission or voting deadline is processed, the round closes at the deadline timestamp, and the next round's deadline is computed from that timestamp. A sweep that runs 45 s late produces exactly the same state as an on-time one.
+- **Why:** Makes the cron sweep and the lazy checks deterministic and idempotent, and lets a long-idle battle be caught up by looping `dueAction` until it returns null.
+
+#### D20. Battle winner = more round points
+
+- **Decided:** Overall winner is whoever has more round points; equal is a draw. Since every round is either 10/0, 5/5, or 0/0, this is identical to comparing round wins.
+- **Why:** GAME_RULES says "overall win" without defining it; both readings give the same answer.
+
+#### D21. Machine API shape
+
+- **Decided:** `createBattle(input, now)` and `transition(state, action, now)` both return `{ ok: true, state, events } | { ok: false, error: { code, message } }`. Actions: `accept`, `decline`, `submit`, `submissionDeadline`, `closeVoting` (with the vote tally, since counting votes needs the database). `dueAction(state, now)` tells callers which deadline action is due. `events` (`battle_started`, `round_revealed`, `battle_completed`, …) let callers send emails without diffing states.
+- **Alternatives:** One generic `tick` action. Rejected: closing votes needs a tally the pure module can't fetch, so the caller has to know which deadline it is handling anyway.
+
+#### D22. Test mode: 3 min submit / 20 s vote, hidden from the UI
+
+- **Decided:** A `test` mode in `src/battle/modes.ts` with `hidden: true`. The challenge picker only shows it when the page URL has `?test=1`; the server accepts it from anyone (a test battle is harmless).
+- **Why:** The two-user Playwright test has to play a round, vote, and see results within a test timeout. 3 minutes leaves room for uploading; 20 s of voting keeps the test short.
+- **Alternatives:** Allow it only in dev builds. Rejected because the e2e test may run against a deployed build later.
+- **No invite expiry:** an unanswered challenge stays `invited` forever. GAME_RULES has no rule for it; out of MVP scope.
