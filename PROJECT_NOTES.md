@@ -11,8 +11,8 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - `npx deepspace test run all --port 5181`: 13/13 pass (88 unit tests), including `tests/battle.spec.ts` (3-user set-and-match battle with network-level leak checks, ~1.6 min, plus a 375px layout check; and a cancel-invite test that re-challenges the pair). 
 - Test accounts (by name in the spec): "Player A" = fi-skillclash-a@deepspace.test, "Player B" = fi-skillclash-b@deepspace.test, "Voter C" = voter-c@deepspace.test (stored in `~/.deepspace/test-accounts.json`).
 - Email delivery not yet confirmed in production logs (no real battle finished on prod). Test-mode battles send no email (D48).
-- Cancel/expiry and the past-round UI went live at 055247f. Set-and-match rules deployed and pushed at b3323c1 (2026-11-25); prod sweep logs `active=2 invited=0 ... failed=0`. Working tree clean.
-- **Not yet checked by a person:** the set-and-match flow on a real phone (record in the challenge form and accept panel, "Match this"), the earlier phone checks (expanded rounds, Expires in, Cancel flow), and video playback in desktop Chrome (D43).
+- Deployed and pushed at dcaf8e9 (2026-11-25): set-and-match rules (b3323c1) plus D55 (compact locked rounds, blind accept copy, reload banner). Live bundle verified to carry the new copy. Prod sweep logs `active=2 invited=0 ... failed=0`. Working tree clean.
+- **Not yet checked by a person:** the D55 fix on a fully reloaded tab (the reported accept-panel bug was a stale tab), the set-and-match flow on a real phone (record in the challenge form and accept panel, "Match this"), the earlier phone checks (expanded rounds, Expires in, Cancel flow), and video playback in desktop Chrome (D43).
 - Decisions D1–D55 in `docs/DECISIONS.md`.
 
 ## Recent changes
@@ -20,11 +20,8 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - 2026-11-25: Set-and-match rounds 1–2 (D53): A must film round 1's skill to challenge, B must name and film round 2's to accept; B's invite is blind; replicator-only deadlines; "Match this" box. Skills hidden server-side on setter submission rows; `publicSubmissions()` decides reveals. Old battles: D54.
 - 2026-11-25: Challenger can cancel an unanswered invite (`cancelled`, D50). Invites expire after the mode's `inviteWindowMs` (24h Standard, 5 min Test) via cron + lazy check (`expired`, D51). Expanded past rounds show only videos/skills; missed players get a one-line row; summary has keyboard-only focus ring (D52).
 - 2026-11-25: Fixed blank videos: the player URL lacked the `apps/<appId>/` key prefix, so the platform answered 403 (D43). Files proxy now serves a video only to its uploader until reveal (D44). Feed card shows the current round's skill (D45). Battle page: current round first, past rounds collapsed newest first (D46). One open battle per pair (D47). No emails for test mode (D48). iPhone uploads checked: H.264, not HEVC (D49).
-- 2026-11-24: Username gate moved inside `<main>` (nav stays visible), loading state added, `/settings` and `/api-status` exempt; battle spec uses named accounts (04ad0a1, D42).
-- 2026-11-24: Phase 5 three-user battle spec (496d3af), Phase 4 emails (cca9b1e), Phase 3 UI (e0628b4). All deployed.
-- 2026-11-24: Phase 1 state machine (f3ec398) and Phase 2 data/actions/cron (c0c76f5).
-- 2026-11-24: Scaffolded into the repo root (app name `skillclash`), registered with `app init`; first deploy claimed **GitHub source** (permanent).
-- 2026-11-24: Added `docs/GAME_RULES.md` and `docs/DECISIONS.md`.
+- 2026-11-24: Username gate inside `<main>`, battle spec uses named accounts (D42). Phases 1–5 built and deployed: state machine, data/actions/cron, UI, emails, three-user spec.
+- 2026-11-24: Scaffolded into the repo root (app `skillclash`); first deploy claimed **GitHub source** (permanent). Added `docs/GAME_RULES.md` and `docs/DECISIONS.md`.
 
 ## Decisions
 - **GitHub is the app's source, permanently.** Never run `npx deepspace push/pull/clone`; they refuse with `source_managed_by_github`. Deploys ship the local working tree, including uncommitted files, so commit before `npx deepspace deploy`.
@@ -36,11 +33,14 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - **File keys:** submissions store the relative key (`videos/...`); `getUrl` needs the full key, so always go through `fullFileKey()` in `VideoUploader.tsx` (D43).
 - **Emails** (`src/battle/notify.ts`): recipient emails read server-side only; actions never return raw `users` rows. Result email fires once via the `battle_completed` event of the winning transition.
 - **Setter rules (D53):** `state.rules = 2` marks new battles. Never put an unrevealed skill in the battle state: the server passes it into the action that opens the round (`accept.round1Skill`, `nextSkill`). Battles without `rules` are legacy (D54).
+- **Locked rounds** are one-line rows; their copy comes from `lockedRoundCopy()` in `src/battle/view.ts` and is worded per viewer (D55).
+- **Stale tabs:** `src/components/UpdateBanner.tsx` (prod only) compares the loaded `/assets/index-*.js` with the live one and offers Reload; it never forces a reload (D55).
 - **Invites:** cancel (challenger only) and expiry (`inviteExpiresAt` in state; `inviteDeadline()` falls back to createdAt + window for old rows) both free the pair rule. No emails for either (D50, D51).
 - **Usernames:** every signed-in user must pick one (UsernameGate in `src/components/game/usernames.tsx`). Profiles live at `/u/<username>`.
 - Out of scope for MVP: Stripe, followers, DMs, tournaments, rankings.
 
 ## Next steps
+- [ ] Fully reload a battle page as B on an open invite: uploader button, new copy, three compact locked rows (D55).
 - [ ] After a deploy, leave a tab open and confirm the "SkillClash was updated" banner appears on refocus (D55).
 - [ ] On a phone: send a challenge (record in the form), accept with a recorded video, check B's invite shows no skill, and the "Match this" box in rounds 1 and 2.
 - [ ] Clean up unused setter videos: they stay in storage when a challenge is declined, cancelled or expires (D53).
@@ -53,6 +53,7 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - [ ] HEVC iPhone videos may not play in desktop Chrome; no fallback UI yet (D49).
 
 ## Gotchas
+- A bug report that shows copy not in `src` is probably a stale tab: grep the live bundle (`curl /home`, then its `assets/index-*.js` and chunks) before changing code.
 - `challenge`/`acceptChallenge` now need a video; specs send challenges through the form (`sendChallenge` in `battle.spec.ts`). The spec's `sniff()` records responses and WS frames to prove a secret never reached a browser.
 - Round results in the browser spec are read from the summary chips (`round-N-summary`); the old `round-N-outcome` line was removed (D52). The cancel test and the full battle test share Player A/B, so `battle.spec.ts` runs serially.
 - **Port 5173 is used by another project** (HAVEN admin). Never kill it. Use `npx deepspace dev start --port 5180` and `npx deepspace test run --port 5181` (test run starts its own server).
