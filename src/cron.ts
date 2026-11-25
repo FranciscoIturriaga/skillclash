@@ -15,6 +15,7 @@ import { createActionTools } from './server/action-routes'
 import { advance, queryAll, revealEndedRounds, type BattleRow } from './battle/service'
 import { dueAction } from './battle/machine'
 import { makeEventHook } from './battle/notify'
+import { runStatsBackfillOnce } from './battle/stats'
 
 export const tasks: CronTask[] = [{ name: 'battle-sweep', intervalMinutes: 1 }]
 
@@ -25,6 +26,13 @@ export async function runTask(name: string, env: Env): Promise<void> {
 export async function battleSweep(env: Env): Promise<void> {
   const tools = createActionTools(env, env.OWNER_USER_ID, '')
   const hook = makeEventHook(env, tools)
+  // One-time count of battles that finished before stored stats (D56).
+  // No-op once its marker exists; safe to repeat (ledger).
+  try {
+    await runStatsBackfillOnce(tools)
+  } catch (e) {
+    console.error(`[stats] backfill: ${e instanceof Error ? e.message : String(e)}`)
+  }
   const now = Date.now()
   const [active, invited] = await Promise.all([
     queryAll<BattleRow & Record<string, unknown>>(tools, 'battles', { status: 'active' }),

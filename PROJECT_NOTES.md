@@ -8,14 +8,15 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 ## Current status
 - MVP is built and deployed: state machine, schemas and server actions, cron sweep (confirmed running in prod logs), files guard, full arena-themed UI, two emails (challenge, battle result).
 - **Set-and-match rules (D53, D54):** setters film first in rounds 1–2 (A with the challenge, B with the accept); blind invite; unrevealed skills live on hidden setter submission rows, not the public battle state. Old active battles finish under the old rules; old open invites can't be accepted.
-- `npx deepspace test run all --port 5181`: 13/13 pass (88 unit tests), including `tests/battle.spec.ts` (3-user set-and-match battle with network-level leak checks, ~1.6 min, plus a 375px layout check; and a cancel-invite test that re-challenges the pair). 
+- `npx deepspace test run all --port 5181`: 13/13 pass (101 unit tests), including `tests/battle.spec.ts` (3-user set-and-match battle with network-level leak checks and feed reel swipe/arrow/vote checks, ~1.6 min, plus a 375px layout check; and a cancel-invite test that re-challenges the pair). 
 - Test accounts (by name in the spec): "Player A" = fi-skillclash-a@deepspace.test, "Player B" = fi-skillclash-b@deepspace.test, "Voter C" = voter-c@deepspace.test (stored in `~/.deepspace/test-accounts.json`).
 - Email delivery not yet confirmed in production logs (no real battle finished on prod). Test-mode battles send no email (D48).
 - Deployed and pushed at dcaf8e9 (2026-11-25): set-and-match rules (b3323c1) plus D55 (compact locked rounds, blind accept copy, reload banner). Live bundle verified to carry the new copy. Prod sweep logs `active=2 invited=0 ... failed=0`. Working tree clean.
 - **Not yet checked by a person:** the D55 fix on a fully reloaded tab (the reported accept-panel bug was a stale tab), the set-and-match flow on a real phone (record in the challenge form and accept panel, "Match this"), the earlier phone checks (expanded rounds, Expires in, Cancel flow), and video playback in desktop Chrome (D43).
-- Decisions D1–D55 in `docs/DECISIONS.md`.
+- Decisions D1–D58 in `docs/DECISIONS.md`.
 
 ## Recent changes
+- 2026-11-25: Stored player stats (D56): `stats_entries` ledger (uniqueOn battleId+playerId) + public `player_stats`, written from the `battle_completed` hook and the repair path; one-time backfill from the cron (marker `app_migrations/stats-backfill-v1`). Profile reads `player_stats`. "Voting now" cards are reels with vote-from-feed (D57), sorted by combined points then deadline (D58).
 - 2026-11-25: D55: the accept-panel bug report was a stale tab (old JS, new server). Added a production-only "SkillClash was updated, Reload" banner, compact one-line locked rounds with per-viewer copy (`lockedRoundCopy`), and new accept panel copy.
 - 2026-11-25: Set-and-match rounds 1–2 (D53): A must film round 1's skill to challenge, B must name and film round 2's to accept; B's invite is blind; replicator-only deadlines; "Match this" box. Skills hidden server-side on setter submission rows; `publicSubmissions()` decides reveals. Old battles: D54.
 - 2026-11-25: Challenger can cancel an unanswered invite (`cancelled`, D50). Invites expire after the mode's `inviteWindowMs` (24h Standard, 5 min Test) via cron + lazy check (`expired`, D51). Expanded past rounds show only videos/skills; missed players get a one-line row; summary has keyboard-only focus ring (D52).
@@ -33,6 +34,7 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - **File keys:** submissions store the relative key (`videos/...`); `getUrl` needs the full key, so always go through `fullFileKey()` in `VideoUploader.tsx` (D43).
 - **Emails** (`src/battle/notify.ts`): recipient emails read server-side only; actions never return raw `users` rows. Result email fires once via the `battle_completed` event of the winning transition.
 - **Setter rules (D53):** `state.rules = 2` marks new battles. Never put an unrevealed skill in the battle state: the server passes it into the action that opens the round (`accept.round1Skill`, `nextSkill`). Battles without `rules` are legacy (D54).
+- **Stats (D56):** never increment `player_stats`; write a ledger row then recount (`recordBattleStats` in `src/battle/stats.ts`). Any new completion path must call it.
 - **Locked rounds** are one-line rows; their copy comes from `lockedRoundCopy()` in `src/battle/view.ts` and is worded per viewer (D55).
 - **Stale tabs:** `src/components/UpdateBanner.tsx` (prod only) compares the loaded `/assets/index-*.js` with the live one and offers Reload; it never forces a reload (D55).
 - **Invites:** cancel (challenger only) and expiry (`inviteExpiresAt` in state; `inviteDeadline()` falls back to createdAt + window for old rows) both free the pair rule. No emails for either (D50, D51).
@@ -40,6 +42,8 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - Out of scope for MVP: Stripe, followers, DMs, tournaments, rankings.
 
 ## Next steps
+- [ ] After deploy: check `npx deepspace logs --search stats` for `[stats] backfill done battles=… counted=…`, then a profile shows the same numbers as before.
+- [ ] On a phone: swipe between the two videos on a "Voting now" card, unmute, vote, and check the card's header still opens the battle page.
 - [ ] Fully reload a battle page as B on an open invite: uploader button, new copy, three compact locked rows (D55).
 - [ ] After a deploy, leave a tab open and confirm the "SkillClash was updated" banner appears on refocus (D55).
 - [ ] On a phone: send a challenge (record in the form), accept with a recorded video, check B's invite shows no skill, and the "Match this" box in rounds 1 and 2.

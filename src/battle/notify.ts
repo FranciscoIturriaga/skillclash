@@ -18,6 +18,7 @@ import type { ActionTools } from 'deepspace/worker'
 import type { Env } from '../../worker'
 import type { BattleState, Side } from './machine'
 import type { EventHook } from './service'
+import { recordBattleStats } from './stats'
 
 interface Person {
   email: string | null
@@ -123,9 +124,20 @@ async function notifyResult(env: Env, tools: ActionTools, battleId: string, stat
   }
 }
 
+/**
+ * What runs after a winning transition. On `battle_completed`: count the
+ * battle on both profiles (stored stats, D56; idempotent), then email the
+ * result. Each step's failure is logged and doesn't block the other.
+ */
 export function makeEventHook(env: Env, tools: ActionTools): EventHook {
   return async (battleId, state, events) => {
     if (events.some((e) => e.type === 'battle_completed')) {
+      try {
+        const r = await recordBattleStats(tools, battleId, state)
+        console.log(`[stats] ${battleId} counted=${r.counted}`)
+      } catch (e) {
+        console.error(`[stats] ${battleId}: ${e instanceof Error ? e.message : String(e)}`)
+      }
       try {
         await notifyResult(env, tools, battleId, state)
       } catch (e) {

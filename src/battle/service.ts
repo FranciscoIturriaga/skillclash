@@ -31,6 +31,7 @@ import {
   type RoundNumber,
   type Side,
 } from './machine'
+import { recordBattleStats } from './stats'
 
 export const MAX_ATTEMPTS = 3
 /**
@@ -251,6 +252,15 @@ export async function repairIfStuck(tools: ActionTools, battleId: string, versio
   if (w.success) {
     console.warn(`[battle] repaired ${battleId} v${version} -> v${toState.version}`)
     await revealEndedRounds(tools, battleId, toState)
+    // The original commit never reached its event hook, so a completion
+    // replayed here is counted now. The ledger makes this idempotent (D56).
+    if (toState.status === 'complete') {
+      try {
+        await recordBattleStats(tools, battleId, toState)
+      } catch (e) {
+        console.error(`[stats] repair ${battleId}: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
   }
   return w.success
 }

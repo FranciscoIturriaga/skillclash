@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createBattle, transition, type BattleAction, type BattleState, type MachineResult } from './machine'
-import { activeDeadline, bucketFor, formatCountdown, formatExpiresIn, inviteExpiry, lockedRoundCopy, profileStats, roundDisplayOrder, runningScore, statusLabel } from './view'
+import { activeDeadline, bucketFor, formatCountdown, formatExpiresIn, inviteExpiry, lockedRoundCopy, roundDisplayOrder, sortVotingNow, runningScore, statusLabel } from './view'
 import { MODES } from './modes'
 
 const A = 'user_a'
@@ -59,11 +59,20 @@ describe('view helpers', () => {
     expect(statusLabel(s, A)).toBe('You won')
     expect(statusLabel(s, B)).toBe('You lost')
     expect(activeDeadline(s)).toBeNull()
-    const a = profileStats([s], A)
-    expect(a).toMatchObject({ played: 1, won: 1, lost: 0, tied: 0, roundWins: 1 })
-    expect(a.points).toBe(s.result!.total.a)
-    expect(profileStats([s], B)).toMatchObject({ played: 1, won: 0, lost: 1 })
-    expect(profileStats([invited()], A).played).toBe(0)
+  })
+
+  it('sorts "Voting now" by both players\' stored points, then soonest deadline (D58)', () => {
+    const pts: Record<string, number> = { a: 100, b: 10, c: 50, d: 50 }
+    const pointsOf = (u: string) => pts[u] ?? 0
+    const rows = [
+      { id: 'low', playerA: 'b', playerB: 'new', nextDeadline: 1 }, // 10
+      { id: 'tieLate', playerA: 'c', playerB: 'd', nextDeadline: 900 }, // 100
+      { id: 'top', playerA: 'a', playerB: 'c', nextDeadline: 999 }, // 150
+      { id: 'tieSoon', playerA: 'a', playerB: 'new2', nextDeadline: 500 }, // 100
+      { id: 'tieNull', playerA: 'd', playerB: 'c', nextDeadline: null }, // 100
+    ]
+    expect(sortVotingNow(rows, pointsOf).map((r) => r.id)).toEqual(['top', 'tieSoon', 'tieLate', 'tieNull', 'low'])
+    expect(rows[0].id).toBe('low') // input untouched
   })
 
   it('formats countdowns', () => {

@@ -11,11 +11,13 @@ export function BattleCard({
   state,
   viewerId,
   highlight,
+  className,
 }: {
   battleId: string
   state: BattleState
   viewerId: string | null
   highlight?: boolean
+  className?: string
 }) {
   const deadline = activeDeadline(state)
   const expiresAt = inviteExpiry(state)
@@ -32,6 +34,7 @@ export function BattleCard({
       className={cn(
         'group block rounded-2xl border bg-card p-4 transition-colors hover:border-primary/50',
         highlight ? 'border-primary/60' : 'border-border',
+        className,
       )}
     >
       <div className="flex items-center justify-between gap-2 text-xs font-semibold uppercase tracking-wider">

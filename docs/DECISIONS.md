@@ -197,8 +197,9 @@ Decisions made during setup without the product owner present. Each entry record
 - **Decided:** `src/server/files-guard.ts` runs inside the app's `/api/files/*` proxy. For non-owners on `scope=app`: single-file GET is allowed (the public link), listing is refused, uploads must use `videos/<caller id>/<16–64 random chars>.<ext>`, multipart continuation is allowed, deletes are refused. `submitVideo` checks the key has the same shape for the caller.
 - **Why:** The secret in D14 is the file key. Without this guard anyone could list app files and find unrevealed videos, delete an opponent's video, or point a submission at someone else's file.
 
-#### D30. Profile stats are computed, not stored
+#### D30. Profile stats are computed, not stored (superseded by D56, 2026-11-25)
 
+- **Superseded:** profile stats are now stored by the server (D56), because the feed sort (D58) needs every player's points without loading their battles. The text below is the original decision.
 - **Decided:** Battles played, W/L/T, round wins and total points are computed on the client from the player's completed battles (`state.result` already holds per-side totals).
 - **Why:** No counters to keep in sync, no extra write per battle end, and a rules change recomputes history. Fine at MVP scale (a player has tens of battles, not thousands).
 
@@ -369,3 +370,25 @@ After the fixes: 12 passed, 0 failed, 0 skipped; 47 unit tests pass.
   - Legacy battles (D54) show their public skill plus "Opens when the challenge is accepted" / "Opens after round 1".
   - A setter's own hidden video sits under a "Watch your skill video" disclosure on the row (round 1's stays in A's invite panel).
 - **Tests:** the browser spec checks B's invite shows the uploader (visible button, hint, `accept`), picks a file through it, shows the per-viewer locked copy, and has no "round 0" and no round 1 skill text; the challenge form check is the same.
+
+## Phase 9: stored stats and the reels feed (2026-11-25)
+
+### D56. Player stats are stored by the server: a ledger plus a recount
+- **Collections:** `stats_entries` is the ledger: one row per player per completed battle (points, played, won, lost, tied, roundWins), with `uniqueOn [battleId, playerId]`; admin read only. `player_stats` is the public row per player (record id = user id), readable by everyone, written by no client. Both are `NO_WRITES` for every role.
+- **Write path:** the event hook (`makeEventHook`, notify.ts) calls `recordBattleStats` when `battle_completed` fires, which only happens for the transition claim that won (D10). `repairIfStuck` also calls it when it replays a completion, since repairs fire no events. `statsEntriesFor(battleId, state)` (pure, stats.ts) reads `state.result`: points = `total[side]`, won/lost/tied from `winner`, round wins from `roundWins[side]`. Forfeits and both-missed rounds are already in the result, so they need no special case.
+- **Idempotent:** a replayed completion, a repair or the backfill hits the ledger's `uniqueOn` and gets a Duplicate, which counts as "already counted". `player_stats` is then recomputed as the sum of the player's ledger rows (an upsert keyed on the user id), never incremented. With no compare-and-set (D10), a recount heals itself; same idea as the live vote total (D28).
+- **Known gap:** if two of one player's battles complete at the same instant, one recount can read the ledger before the other's row lands and write a stale total. The next battle, repair or backfill run fixes it. Acceptable at this scale.
+- **Backfill:** the cron sweep calls `runStatsBackfillOnce` first. If the `app_migrations` row `stats-backfill-v1` exists, it does nothing. Otherwise it records every `complete` battle through the same ledger and then writes the marker. Running it twice, or after the live hook already counted a battle, counts nothing extra (unit tested). It needs no manual step after deploy and runs within a minute.
+- **Failures:** a stats error is logged (`[stats] …`) and never undoes the state change or blocks the result email.
+- **Profile:** `/u/<username>` reads `player_stats` (shows "–" while loading and zeros for a player with no row). `profileStats` (client count) is removed.
+
+### D57. "Voting now" cards are reels: one video at a time, vote from the feed
+- **Layout:** the card keeps the battle header (status, countdown, players, score, skill name), which still links to the battle page. Under it is a horizontal scroll-snap track with two slides, one per player: "@name's video" label, round 3's own skill name under it, a 9:16 video (width `min(100%, 70vh × 9/16)`), and "Vote for this". A "1/2"/"2/2" indicator sits top right.
+- **Moving:** swipe on touch (native scroll-snap; the slide index is read from the scroll position) or the 44 px prev/next buttons on the sides (disabled at the ends). Off-screen slides get `aria-hidden` and their button `tabIndex=-1`.
+- **Voting:** the same `castVote` action and rules as the battle page. Competitors see no buttons and "It's your battle, so you can't vote on it." Signed-out users get "Sign in to vote". After voting, the chosen button reads "You voted", both are disabled, and a line says who you voted for and that counts show when voting closes. Per-player counts are never shown on the card. The viewer's existing vote is fetched (`myVote`) once the card is first on screen.
+- **Performance:** a video gets its `src` only once its slide has been on screen (card ≥50% in view and slide current); before that it has no `src` and `preload="none"`. Only the current slide of an in-view card plays. Videos are muted, looped, `playsInline`, no controls (tap to pause/play, a "Tap to unmute" button), never fullscreen.
+- **Tests:** the browser spec has C open the feed before voting starts, check 1/2 with the second video not loaded, go to 2/2 and back with the arrows and with synthetic touch swipes, vote for A from the feed and see both buttons locked. In parallel A opens the feed in a second tab and sees the card with no vote buttons. The vote then shows as "1 vote" on A's battle page and decides round 1 as before.
+
+### D58. "Voting now" order: combined stored points, then soonest deadline
+- **Decided:** `sortVotingNow` (view.ts, unit tested) orders by `points(A) + points(B)` from `player_stats`, highest first, then by `nextDeadline` ascending (null last). Players without a stats row count as 0.
+- **How:** the feed loads up to 50 vote-phase battles and up to 500 `player_stats` rows (public) and sorts on the client. That's fine at this scale; past 500 players, unknown players would sort as 0 and this should move to a server query.

@@ -251,16 +251,69 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   expect(await videoStatus(a.page, setterUrlB)).toBe(404)
   expect(await videoStatus(c.page, setterUrlB)).toBe(404)
 
-  // Round 1: only B (the replicator) submits, and voting opens at once.
+  // Round 1: only B (the replicator) submits, and voting opens at once. C
+  // watches the home feed and A opens it in a second tab, so the card shows
+  // up live (D57). Test mode's vote window is 20 s, so the feed checks run in
+  // parallel and the battle-page checks use pages that are already open.
+  await c.page.goto('/home')
+  const aFeed = await a.page.context().newPage()
+  await aFeed.goto('/home')
   await submitRound(b.page, 1)
   await expect(a.page.getByTestId('round-1-phase')).toHaveText('Voting', { timeout: 20_000 })
 
-  // C votes for A.
-  await c.page.goto(battleUrl)
-  const round1 = c.page.getByTestId('round-1')
-  await round1.getByTestId('vote-a').click()
-  await expect(round1.getByTestId('my-vote')).toBeVisible({ timeout: 15_000 })
-  await expect(round1.getByTestId('round-1-total-votes')).toContainText('1 vote', { timeout: 15_000 })
+  const feedCard = (p: Page) => p.locator(`[data-testid="feed-vote-card"][data-battle-id="${id}"]`)
+  await Promise.all([
+    (async () => {
+      // C: one video at a time, 1/2 → 2/2 by arrow and by swipe, then votes from the feed.
+      const card = feedCard(c.page)
+      await expect(card).toBeVisible({ timeout: 20_000 })
+      await card.scrollIntoViewIfNeeded()
+      const indicator = card.getByTestId('reel-indicator')
+      await expect(indicator).toHaveText('1/2')
+      await expect(card.getByTestId('reel-slide-a').getByTestId('reel-label')).toHaveText(`@${nameA}'s video`)
+      await expect(card.getByTestId('reel-video-a')).toHaveAttribute('src', /videos\//)
+      // The off-screen video hasn't loaded yet (D57).
+      expect(await card.getByTestId('reel-video-b').getAttribute('src')).toBeNull()
+      await card.getByTestId('reel-next').click()
+      await expect(indicator).toHaveText('2/2')
+      await expect(card.getByTestId('reel-slide-b').getByTestId('reel-label')).toHaveText(`@${nameB}'s video`)
+      await expect(card.getByTestId('reel-video-b')).toHaveAttribute('src', /videos\//)
+      await card.getByTestId('reel-prev').click()
+      await expect(indicator).toHaveText('1/2')
+      // Swipe left, then right, with a synthetic touch gesture on the track.
+      const box = (await card.getByTestId('reel-track').boundingBox())!
+      const cdp = await c.page.context().newCDPSession(c.page)
+      const swipe = (dx: number) =>
+        cdp.send('Input.synthesizeScrollGesture', {
+          x: Math.round(box.x + box.width / 2),
+          y: Math.round(box.y + box.height / 3),
+          xDistance: dx,
+          yDistance: 0,
+          gestureSourceType: 'touch',
+          speed: 2000,
+        })
+      await swipe(-Math.round(box.width * 0.8))
+      await expect(indicator).toHaveText('2/2')
+      await swipe(Math.round(box.width * 0.8))
+      await expect(indicator).toHaveText('1/2')
+      // Vote for A from the feed: "You voted", and both buttons lock.
+      await card.getByTestId('reel-vote-a').click()
+      await expect(card.getByTestId('reel-vote-a')).toHaveText(/You voted/, { timeout: 15_000 })
+      await expect(card.getByTestId('reel-vote-a')).toBeDisabled()
+      await expect(card.getByTestId('reel-vote-b')).toBeDisabled()
+      await expect(card.getByTestId('reel-you-voted')).toContainText(`@${nameA}`)
+    })(),
+    (async () => {
+      // A (a competitor) sees the card but no vote button on their own battle.
+      const card = feedCard(aFeed)
+      await expect(card).toBeVisible({ timeout: 20_000 })
+      await expect(card.getByTestId('reel-competitor')).toBeVisible()
+      await expect(card.locator('[data-testid^="reel-vote-"]')).toHaveCount(0)
+    })(),
+  ])
+  await aFeed.close()
+  // The feed vote counted: A's open battle page shows the live total.
+  await expect(a.page.getByTestId('round-1').getByTestId('round-1-total-votes')).toContainText('1 vote', { timeout: 15_000 })
 
   // Duplicate vote from C is refused by the database (uniqueOn roundId+voterId).
   const dup = await callAction(c.page, 'castVote', { battleId: id, round: 1, side: 'b' })
@@ -274,7 +327,8 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   expect(own.code).toBe('competitor')
 
   // Per-side counts are hidden while voting is open...
-  await expect(c.page.getByTestId('round-1-summary')).toHaveCount(0)
+  await expect(a.page.getByTestId('round-1-summary')).toHaveCount(0)
+  await c.page.goto(battleUrl)
   // Round 2's skill and B's video are still hidden from A and the voter.
   await expect(a.page.getByTestId('round-2-skill')).not.toContainText(SKILL2)
   expect(await sniffA.saw(SKILL2)).toBe(false)

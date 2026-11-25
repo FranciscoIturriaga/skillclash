@@ -1,6 +1,6 @@
 /**
- * Public profile: username, record, points and past battles. Stats are
- * computed from the player's completed battles on the client (DECISIONS D30).
+ * Public profile: username, record, points and past battles. Stats come from
+ * the server-written `player_stats` row (D56, replaces D30's client count).
  */
 
 import { useMemo } from 'react'
@@ -8,7 +8,8 @@ import { useParams } from 'react-router-dom'
 import { useAuth, useQuery } from 'deepspace'
 import { History, UserX } from 'lucide-react'
 import { EmptyState } from '@/components/ui'
-import { profileStats, type BattleRowData } from '../../../battle/view'
+import type { BattleRowData } from '../../../battle/view'
+import { EMPTY_STATS, statsFromRow, type PlayerStats } from '../../../battle/stats'
 import { BattleCard } from '../../../components/game/BattleCard'
 import { SectionTitle } from '../../../components/game/bits'
 import { useUsernames } from '../../../components/game/usernames'
@@ -44,10 +45,12 @@ function Profile({ userId, username }: { userId: string; username: string }) {
     return out.sort((x, y) => y.row.state.createdAt - x.row.state.createdAt)
   }, [asA.records, asB.records])
 
-  const stats = profileStats(battles.map((b) => b.row.state), userId)
+  const statsQ = useQuery<PlayerStats & { userId: string }>('player_stats', { where: { userId }, limit: 1 })
+  const stats = statsQ.records[0] ? statsFromRow(statsQ.records[0].data) : EMPTY_STATS
   const past = battles.filter((b) => b.row.state.status === 'complete' || b.row.state.status === 'declined')
   const live = battles.filter((b) => b.row.state.status === 'active')
   const loading = asA.status !== 'ready' || asB.status !== 'ready'
+  const statsLoading = statsQ.status !== 'ready'
 
   const tiles: Array<[string, number, string?]> = [
     ['Battles', stats.played],
@@ -69,7 +72,7 @@ function Profile({ userId, username }: { userId: string; username: string }) {
           {tiles.map(([label, value, color]) => (
             <div key={label} className="rounded-xl bg-background/70 px-3 py-2.5">
               <dt className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</dt>
-              <dd className={`font-display text-3xl font-extrabold tabular-nums ${color ?? ''}`}>{loading ? '–' : value}</dd>
+              <dd className={`font-display text-3xl font-extrabold tabular-nums ${color ?? ''}`}>{statsLoading ? '–' : value}</dd>
             </div>
           ))}
         </dl>

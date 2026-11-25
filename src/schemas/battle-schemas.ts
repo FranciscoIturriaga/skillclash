@@ -169,6 +169,61 @@ export const transitionsSchema: CollectionSchema = {
   },
 }
 
+const STAT_COLUMNS = [
+  { name: 'points', storage: 'number', interpretation: 'plain', default: 0 },
+  { name: 'played', storage: 'number', interpretation: 'plain', default: 0 },
+  { name: 'won', storage: 'number', interpretation: 'plain', default: 0 },
+  { name: 'lost', storage: 'number', interpretation: 'plain', default: 0 },
+  { name: 'tied', storage: 'number', interpretation: 'plain', default: 0 },
+  { name: 'roundWins', storage: 'number', interpretation: 'plain', default: 0 },
+] as const satisfies CollectionSchema['columns']
+
+/**
+ * Public profile stats, one row per player (record id = user id). Written
+ * only by the server, as the sum of the player's `stats_entries` (D56).
+ */
+export const playerStatsSchema: CollectionSchema = {
+  name: 'player_stats',
+  columns: [
+    // Server-written (cron writes too), so not userBound.
+    { name: 'userId', storage: 'text', interpretation: 'plain', required: true, immutable: true },
+    ...STAT_COLUMNS,
+  ],
+  permissions: publicReadOnly(),
+}
+
+/**
+ * The stats ledger: what one completed battle added to one player's profile.
+ * `uniqueOn [battleId, playerId]` is the guarantee that a battle is counted
+ * only once per player, even if its completion is replayed (D56).
+ */
+export const statsEntriesSchema: CollectionSchema = {
+  name: 'stats_entries',
+  columns: [
+    { name: 'battleId', storage: 'text', interpretation: 'plain', required: true, immutable: true },
+    { name: 'playerId', storage: 'text', interpretation: 'plain', required: true, immutable: true },
+    { name: 'side', storage: 'text', interpretation: 'plain', required: true, immutable: true },
+    ...STAT_COLUMNS,
+  ],
+  uniqueOn: ['battleId', 'playerId'],
+  permissions: {
+    admin: { read: true, ...NO_WRITES },
+  },
+}
+
+/** One-time server jobs that already ran (e.g. the stats backfill). Not readable by clients. */
+export const appMigrationsSchema: CollectionSchema = {
+  name: 'app_migrations',
+  columns: [
+    { name: 'name', storage: 'text', interpretation: 'plain', required: true, immutable: true },
+    { name: 'at', storage: 'number', interpretation: 'plain', required: true },
+  ],
+  uniqueOn: ['name'],
+  permissions: {
+    admin: { read: true, ...NO_WRITES },
+  },
+}
+
 export const battleSchemas: CollectionSchema[] = [
   usernamesSchema,
   battlesSchema,
@@ -176,4 +231,7 @@ export const battleSchemas: CollectionSchema[] = [
   submissionsSchema,
   votesSchema,
   transitionsSchema,
+  playerStatsSchema,
+  statsEntriesSchema,
+  appMigrationsSchema,
 ]

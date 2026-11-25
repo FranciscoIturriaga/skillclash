@@ -264,3 +264,9 @@
 @media (prefers-reduced-motion: reduce) {
   .animate-live { animation: none; }
 }
+
+/* Horizontal swipe tracks (feed reels): scrollable, no visible bar. */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+}

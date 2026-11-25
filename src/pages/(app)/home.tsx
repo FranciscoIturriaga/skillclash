@@ -9,8 +9,10 @@ import { AuthOverlay, useAuth, useQuery } from 'deepspace'
 import { Flame, Swords, Trophy } from 'lucide-react'
 import { Button, EmptyState, buttonVariants, cn } from '@/components/ui'
 import type { BattleRowData, MyBucket } from '../../battle/view'
-import { bucketFor } from '../../battle/view'
+import { bucketFor, sortVotingNow } from '../../battle/view'
+import type { PlayerStats } from '../../battle/stats'
 import { BattleCard } from '../../components/game/BattleCard'
+import { FeedVoteCard } from '../../components/game/FeedVoteCard'
 import { CancelChallenge } from '../../components/game/CancelChallenge'
 import { SectionTitle } from '../../components/game/bits'
 import { useMyUsername } from '../../components/game/usernames'
@@ -149,8 +151,17 @@ function VotingNow({ viewerId }: { viewerId: string | null }) {
     where: { status: 'active', phase: 'vote' },
     orderBy: 'nextDeadline',
     orderDir: 'asc',
-    limit: 30,
+    limit: 50,
   })
+  // Public stored stats (D56) drive the order: biggest combined points first (D58).
+  const statsQ = useQuery<PlayerStats & { userId: string }>('player_stats', { limit: 500 })
+  const sorted = useMemo(() => {
+    const points = new Map(statsQ.records.map((r) => [r.data.userId, Number(r.data.points) || 0]))
+    return sortVotingNow(
+      records.map((r) => ({ id: r.recordId, state: r.data.state, playerA: r.data.playerA, playerB: r.data.playerB, nextDeadline: r.data.nextDeadline })),
+      (u) => points.get(u) ?? 0,
+    )
+  }, [records, statsQ.records])
   return (
     <section data-testid="voting-now">
       <SectionTitle count={status === 'ready' ? records.length : undefined}>
@@ -166,8 +177,8 @@ function VotingNow({ viewerId }: { viewerId: string | null }) {
         />
       ) : (
         <div className="space-y-3">
-          {records.map((r) => (
-            <BattleCard key={r.recordId} battleId={r.recordId} state={r.data.state} viewerId={viewerId} />
+          {sorted.map((r) => (
+            <FeedVoteCard key={r.id} battleId={r.id} state={r.state} viewerId={viewerId} />
           ))}
         </div>
       )}

@@ -133,29 +133,18 @@ export function roundLabel(r: RoundState): string {
   return r.skill ?? 'Skill hidden'
 }
 
-export interface ProfileStats {
-  played: number
-  won: number
-  lost: number
-  tied: number
-  roundWins: number
-  points: number
-}
-
-/** Profile numbers, computed from the player's completed battles (DECISIONS D30). */
-export function profileStats(battles: BattleState[], userId: string): ProfileStats {
-  const s: ProfileStats = { played: 0, won: 0, lost: 0, tied: 0, roundWins: 0, points: 0 }
-  for (const b of battles) {
-    const side = sideOf(b, userId)
-    if (!side || b.status !== 'complete' || !b.result) continue
-    s.played++
-    if (b.result.winner === 'draw') s.tied++
-    else if (b.result.winner === side) s.won++
-    else s.lost++
-    s.roundWins += b.result.roundWins[side]
-    s.points += b.result.total[side]
-  }
-  return s
+/**
+ * "Voting now" order (D58): the sum of both players' stored total points,
+ * highest first; ties broken by the soonest voting deadline. Players with no
+ * stats row count as 0. Returns a new array.
+ */
+export function sortVotingNow<T extends { playerA: string; playerB: string; nextDeadline: number | null }>(
+  rows: T[],
+  pointsOf: (userId: string) => number,
+): T[] {
+  const sum = (r: T) => pointsOf(r.playerA) + pointsOf(r.playerB)
+  const due = (r: T) => r.nextDeadline ?? Number.POSITIVE_INFINITY
+  return [...rows].sort((x, y) => sum(y) - sum(x) || due(x) - due(y))
 }
 
 export function otherSide(side: Side): Side {
