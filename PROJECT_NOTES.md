@@ -10,7 +10,8 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - `npx deepspace test run all --port 5181`: 13/13 pass, including `tests/battle.spec.ts` (3-user full battle, ~1.6 min, plus a 375px layout check; and a cancel-invite test that re-challenges the pair). 72 vitest unit tests pass.
 - Test accounts (by name in the spec): "Player A" = fi-skillclash-a@deepspace.test, "Player B" = fi-skillclash-b@deepspace.test, "Voter C" = voter-c@deepspace.test (stored in `~/.deepspace/test-accounts.json`).
 - Email delivery not yet confirmed in production logs (no real battle finished on prod). Test-mode battles send no email (D48).
-- Deployed and pushed at 596dc0c (2026-11-25). After deploy, the two revealed .mov clips return 206 `video/quicktime` with Range (curl). **Not yet checked:** actual playback in desktop Chrome (the Chrome extension wasn't connected).
+- Deployed and pushed at 055247f (2026-11-25): cancel/expiry and the past-round UI are live. The first prod cron run after deploy logged `battle-sweep active=2 invited=0 ...`, so the sweep now also checks invites. Working tree clean.
+- **Not yet checked by a person:** the new UI on a real phone (expanded rounds, Expires in, Cancel flow), and video playback in desktop Chrome (D43).
 - Decisions D1–D52 in `docs/DECISIONS.md`.
 
 ## Recent changes
@@ -27,7 +28,7 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - **All battle state transitions go in one pure module**, `src/battle/machine.ts`: (state + action) → new state or error, with unit tests. Server actions (`src/battle/service.ts`) and cron both call it.
 - **No compare-and-set in the SDK.** Concurrency guard: `battle_transitions` collection with `uniqueOn: ['battleId','fromVersion']`; only one simultaneous transition wins (D10).
 - **Votes go through the `castVote` action.** `votes` has `uniqueOn: ['roundId','voterId']`, member `create: false`, `read: 'own'`. Competitors and out-of-window votes are refused; tallies hidden until voting closes (D12).
-- **Deadlines:** cron task in `src/cron.ts` every minute plus lazy deadline checks in every action; both idempotent (D11).
+- **Deadlines:** cron task in `src/cron.ts` every minute plus lazy deadline checks in every action; both idempotent (D11). The sweep reads `active` and `invited` battles and uses `dueAction(state)`, not `nextDeadline` (older invite rows have it null).
 - **Video privacy:** videos upload to `app` scope under an unguessable key `videos/<uid>/<24 random chars>.<ext>`; the key stays on the hidden submission row until the submit window ends (reveal step), and the files proxy refuses non-uploaders until a revealed submission uses that key (D44). Limits 20 s / 50 MB (D8).
 - **File keys:** submissions store the relative key (`videos/...`); `getUrl` needs the full key, so always go through `fullFileKey()` in `VideoUploader.tsx` (D43).
 - **Emails** (`src/battle/notify.ts`): recipient emails read server-side only; actions never return raw `users` rows. Result email fires once via the `battle_completed` event of the winning transition.
@@ -36,6 +37,7 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - Out of scope for MVP: Stripe, followers, DMs, tournaments, rankings.
 
 ## Next steps
+- [ ] On a phone: expand a past round (videos only, no outline on tap), check "Expires in" on a new invite, and test Cancel challenge → Keep it / Yes, cancel, then re-challenge.
 - [ ] Open the battle with the Photo Booth and iPhone clips in desktop Chrome and confirm both play (D43).
 - [ ] Play one real battle on a phone; check `npx deepspace logs --search email` for `[email] ... sent`.
 - [ ] Demo mode with short windows and a seeded demo battle.
@@ -44,6 +46,7 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - [ ] HEVC iPhone videos may not play in desktop Chrome; no fallback UI yet (D49).
 
 ## Gotchas
+- Round results in the browser spec are read from the summary chips (`round-N-summary`); the old `round-N-outcome` line was removed (D52). The cancel test and the full battle test share Player A/B, so `battle.spec.ts` runs serially.
 - **Port 5173 is used by another project** (HAVEN admin). Never kill it. Use `npx deepspace dev start --port 5180` and `npx deepspace test run --port 5181` (test run starts its own server).
 - `npx deepspace auth login` needs a real interactive terminal. Run it yourself (`! npx deepspace auth login`), not from an agent shell.
 - Battle spec runs use test mode, which sends no email (D48). Real battles cost $0.013 per email from owner credits.
