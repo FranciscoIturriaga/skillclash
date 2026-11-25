@@ -11,6 +11,7 @@ import { Button, EmptyState, buttonVariants, cn } from '@/components/ui'
 import type { BattleRowData, MyBucket } from '../../battle/view'
 import { bucketFor } from '../../battle/view'
 import { BattleCard } from '../../components/game/BattleCard'
+import { CancelChallenge } from '../../components/game/CancelChallenge'
 import { SectionTitle } from '../../components/game/bits'
 import { useMyUsername } from '../../components/game/usernames'
 
@@ -117,15 +118,23 @@ function MyBattles({ userId }: { userId: string }) {
             <div key={bucket} data-testid={`group-${bucket}`}>
               <SectionTitle count={list.length}>{title}</SectionTitle>
               <div className="space-y-3">
-                {shown.map(({ id, row }) => (
-                  <BattleCard
-                    key={id}
-                    battleId={id}
-                    state={row.state}
-                    viewerId={userId}
-                    highlight={bucket === 'invite' || bucket === 'my_turn'}
-                  />
-                ))}
+                {shown.map(({ id, row }) =>
+                  bucket === 'sent' ? (
+                    // The cancel control sits outside the card's link (no button inside an <a>).
+                    <div key={id} className="space-y-2" data-testid="sent-item">
+                      <BattleCard battleId={id} state={row.state} viewerId={userId} />
+                      <CancelChallenge battleId={id} className="px-1" />
+                    </div>
+                  ) : (
+                    <BattleCard
+                      key={id}
+                      battleId={id}
+                      state={row.state}
+                      viewerId={userId}
+                      highlight={bucket === 'invite' || bucket === 'my_turn'}
+                    />
+                  ),
+                )}
               </div>
             </div>
           )

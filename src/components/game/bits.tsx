@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom'
 import { Timer } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Side } from '../../battle/machine'
-import { formatCountdown } from '../../battle/view'
+import { formatCountdown, formatExpiresIn } from '../../battle/view'
 import { useNow } from '../../lib/useNow'
 import { useUsernames } from './usernames'
 
@@ -77,6 +77,40 @@ export function Countdown({
   )
 }
 
+/**
+ * "Expires in 23h" for an open invite. Coarse on purpose; re-renders every
+ * 30 s. Calls `onExpire` once when the deadline passes.
+ */
+export function ExpiresIn({ at, onExpire, className }: { at: number; onExpire?: () => void; className?: string }) {
+  const now = useNow(30_000)
+  const left = at - now
+  const fired = useRef<number | null>(null)
+  useEffect(() => {
+    if (!onExpire) return
+    if (left <= 0) {
+      if (fired.current !== at) {
+        fired.current = at
+        onExpire()
+      }
+      return
+    }
+    // Fire on time even between the 30 s ticks.
+    const t = setTimeout(() => {
+      if (fired.current !== at) {
+        fired.current = at
+        onExpire()
+      }
+    }, left)
+    return () => clearTimeout(t)
+  }, [left, at, onExpire])
+  return (
+    <span className={cn('inline-flex items-center gap-1 tabular-nums', className)} data-testid="invite-expires">
+      <Timer className="size-3.5 opacity-70" aria-hidden />
+      {left > 0 ? `Expires in ${formatExpiresIn(left)}` : 'Expired'}
+    </span>
+  )
+}
+
 export function LiveDot({ className }: { className?: string }) {
   return <span aria-hidden className={cn('inline-block size-2 rounded-full bg-destructive animate-live', className)} />
 }
@@ -90,6 +124,10 @@ export function SectionTitle({ children, count }: { children: React.ReactNode; c
   )
 }
 
-export function Panel({ className, children }: { className?: string; children: React.ReactNode }) {
-  return <div className={cn('rounded-2xl border border-border bg-card', className)}>{children}</div>
+export function Panel({ className, children, ...rest }: React.HTMLAttributes<HTMLDivElement> & { 'data-testid'?: string }) {
+  return (
+    <div {...rest} className={cn('rounded-2xl border border-border bg-card', className)}>
+      {children}
+    </div>
+  )
 }

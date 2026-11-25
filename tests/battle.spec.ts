@@ -5,7 +5,9 @@
  * voting closes. Rounds 2 and 3 get no votes, so they end as 0–0 ties.
  * Also: a second open battle between the pair is refused (D47); a video loads
  * for its uploader before reveal but not for the opponent or a voter, and for
- * everyone after (D44); rounds show current first, then past newest first (D46).
+ * everyone after (D44); rounds show current first, then past newest first (D46);
+ * an expanded past round adds only the videos and fits a 375px screen (D52).
+ * A second test covers cancelling an invite and challenging again (D50, D51).
  *
  * Test mode: 3 min to submit, 20 s to vote (src/battle/modes.ts).
  * Needs the three named test accounts below; skips otherwise (DECISIONS D32, D42).
@@ -28,6 +30,9 @@ test.skip(
     '`npx deepspace test accounts create --email <email> --name "<name>" --password-stdin` ' +
     '(fi-skillclash-a@, fi-skillclash-b@, voter-c@deepspace.test).',
 )
+
+// Both tests use the same pair, and an open battle blocks the pair (D47).
+test.describe.configure({ mode: 'serial' })
 
 const CLIP = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'clip.webm')
 
@@ -167,24 +172,28 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   expect(own.code).toBe('competitor')
 
   // Per-side counts are hidden while voting is open...
-  await expect(c.page.getByTestId('round-1-outcome')).toHaveCount(0)
-  // ...and appear once it closes (20 s window + settle grace).
-  await expect(c.page.getByTestId('round-1-outcome')).toContainText('takes the round', { timeout: 60_000 })
+  await expect(c.page.getByTestId('round-1-summary')).toHaveCount(0)
+  // ...and appear in the round's summary once it closes (20 s window + settle grace).
+  await expect(c.page.getByTestId('round-1-summary')).toContainText('1 vote', { timeout: 60_000 })
+  await expect(c.page.getByTestId('round-1-summary')).toContainText('+10 pts')
 
   // Round 2 is current and on top; round 1 is collapsed below it.
   await expect(c.page.getByTestId('round-2-phase')).toHaveText('Filming', { timeout: 30_000 })
   expect(await sectionOrder(c.page)).toEqual(['round-2', 'round-1', 'round-3'])
-  await expect(c.page.getByTestId('round-1-summary')).toContainText('+10 pts')
   await expect(c.page.getByTestId('round-1-a')).toBeHidden()
   await c.page.getByTestId('round-1-toggle').click()
   await expect(c.page.getByTestId('round-1-a')).toBeVisible()
+  // No outline left on the header after clicking it (keyboard focus keeps a ring).
+  await expect(c.page.getByTestId('round-1-toggle')).toHaveCSS('outline-style', 'none')
+  // Expanded adds the videos only; votes and points stay in the summary chips (D52).
+  await expect(c.page.getByTestId('round-1-total-votes')).toHaveCount(0)
 
   // Rounds 2 and 3: both submit, nobody votes → ties.
   for (const round of [2, 3]) {
     await expect(a.page.getByTestId(`round-${round}-phase`)).toHaveText('Filming', { timeout: 30_000 })
     await submitRound(a.page, round)
     await submitRound(b.page, round)
-    await expect(c.page.getByTestId(`round-${round}-outcome`)).toContainText('tie', { timeout: 60_000 })
+    await expect(c.page.getByTestId(`round-${round}-summary`)).toContainText('+5 pts', { timeout: 60_000 })
   }
 
   // Final result: A won round 1 (10 + 5 + 5 = 20, +10 bonus), B tied two (10).
@@ -194,4 +203,74 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   await expect(c.page.getByTestId('battle-score')).toHaveText(/30\s*:\s*10/)
   // Finished: result first, then rounds 3, 2, 1.
   expect(await sectionOrder(c.page)).toEqual(['battle-result', 'round-3', 'round-2', 'round-1'])
+
+  // Phone width: an expanded round's video cards use the full width and nothing overflows.
+  await c.page.setViewportSize({ width: 375, height: 812 })
+  await c.page.reload()
+  await c.page.getByTestId('round-3-toggle').click()
+  const card = c.page.getByTestId('round-3-a')
+  await expect(card).toBeVisible({ timeout: 20_000 })
+  await expect(card).toContainText('Handstand')
+  const cardBox = (await card.boundingBox())!
+  const videoBox = (await card.locator('video').boundingBox())!
+  const cardB = (await c.page.getByTestId('round-3-b').boundingBox())!
+  expect(cardB.y).toBeGreaterThan(cardBox.y) // stacked, not side by side
+  expect(videoBox.width).toBeGreaterThanOrEqual(cardBox.width - 26) // only the card's padding
+  expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(375)
+  const overflow = await c.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+  expect(overflow).toBeLessThanOrEqual(0)
+})
+
+test('cancel an invite, then the pair can challenge again', async ({ users }) => {
+  test.setTimeout(120_000)
+  const [a, b] = await users(['Player A', 'Player B'])
+  await ensureUsername(a.page, a.email)
+  const nameB = await ensureUsername(b.page, b.email)
+
+  // A challenges B; the invite shows when it expires (test mode: 5 minutes).
+  await a.page.goto('/challenge?test=1')
+  await a.page.getByLabel('Opponent').fill(nameB)
+  await a.page.getByLabel('Round 1 skill').fill('Juggling')
+  await a.page.getByTestId('send-challenge').click()
+  await a.page.waitForURL(/\/battle\/[A-Za-z0-9]+$/, { timeout: 20_000 })
+  const battleUrl = new URL(a.page.url()).pathname
+  const id = battleUrl.split('/').pop()!
+  await expect(a.page.getByTestId('invite-expires')).toHaveText(/Expires in [45]m/, { timeout: 20_000 })
+
+  // Only the challenger can cancel (server-enforced).
+  const byB = await callAction(b.page, 'cancelChallenge', { battleId: id })
+  expect(byB.success).toBe(false)
+  expect(byB.code).toBe('wrong_player')
+
+  // A cancels from the "Sent challenges" list, with a confirm step.
+  await a.page.goto('/home')
+  const sent = a.page.getByTestId('group-sent').getByTestId('sent-item').filter({
+    has: a.page.locator(`a[href="${battleUrl}"]`),
+  })
+  await expect(sent).toBeVisible({ timeout: 20_000 })
+  await expect(sent.getByTestId('invite-expires')).toContainText('Expires in')
+  await sent.getByTestId('cancel-challenge').click()
+  await expect(sent.getByTestId('cancel-confirm')).toBeVisible()
+  await sent.getByTestId('confirm-cancel-challenge').click()
+  await expect(sent).toHaveCount(0, { timeout: 15_000 })
+
+  // B sees it as cancelled and can no longer accept it.
+  await b.page.goto(battleUrl)
+  await expect(b.page.getByTestId('battle-status')).toHaveText('Cancelled', { timeout: 20_000 })
+  await expect(b.page.getByTestId('battle-cancelled')).toBeVisible()
+  await expect(b.page.getByTestId('accept-challenge')).toHaveCount(0)
+  const accept = await callAction(b.page, 'acceptChallenge', { battleId: id, round2Skill: 'Backflip' })
+  expect(accept.success).toBe(false)
+
+  // The pair is free again: A can challenge B right away.
+  const again = await callAction(a.page, 'challenge', { opponentUsername: nameB, skill: 'Again', modeId: 'test' })
+  expect(again.success).toBe(true)
+  const againId = (again as { data?: { battleId: string } }).data!.battleId
+
+  // Cancel from the battle page too, so the pair is left free.
+  await a.page.goto(`/battle/${againId}`)
+  await a.page.getByTestId('cancel-challenge').click()
+  await a.page.getByTestId('confirm-cancel-challenge').click()
+  await expect(a.page.getByTestId('battle-status')).toHaveText('Cancelled', { timeout: 15_000 })
+  await expect(a.page.getByTestId('battle-cancelled')).toContainText('You cancelled')
 })

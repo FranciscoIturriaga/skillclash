@@ -3,6 +3,7 @@ import {
   battleResult,
   createBattle,
   dueAction,
+  inviteDeadline,
   normalizeSkill,
   roundPoints,
   transition,
@@ -18,6 +19,7 @@ const C = 'user_c'
 const T0 = Date.UTC(2026, 10, 24, 12, 0, 0)
 const SUBMIT = MODES.test.submitWindowMs
 const VOTE = MODES.test.voteWindowMs
+const INVITE = MODES.test.inviteWindowMs
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -279,8 +281,9 @@ describe('closing votes', () => {
 // ── dueAction (what the sweep runs) ─────────────────────────────────────────
 
 describe('dueAction', () => {
-  it('is null for invited, declined and complete battles, and before deadlines', () => {
-    expect(dueAction(invited(), T0 + 10 * SUBMIT)).toBeNull()
+  it('is null before deadlines, and for declined battles', () => {
+    expect(dueAction(invited(), T0 + INVITE - 1)).toBeNull()
+    expect(dueAction(step(invited(), { type: 'decline', by: B }, T0 + 1), T0 + 10 * INVITE)).toBeNull()
     expect(dueAction(active(), T0 + SUBMIT - 1)).toBeNull()
   })
 
@@ -377,5 +380,109 @@ describe('battleResult', () => {
   it('3 wins for one side', () => {
     const w = { kind: 'forfeit', winner: 'b' } as const
     expect(battleResult([w, w, w]).total).toEqual({ a: 0, b: 40 })
+  })
+})
+
+// ── cancelling an invite (D50) ─────────────────────────────────────────────
+
+describe('cancel', () => {
+  it('the challenger can cancel while the battle is invited', () => {
+    const r = ok(transition(invited(), { type: 'cancel', by: A }, T0 + 1000))
+    expect(r.state.status).toBe('cancelled')
+    expect(r.state.respondedAt).toBe(T0 + 1000)
+    expect(r.state.currentRound).toBeNull()
+    expect(r.state.version).toBe(1)
+    expect(r.events).toEqual([{ type: 'battle_cancelled' }])
+  })
+
+  it('only the challenger can cancel', () => {
+    expect(errCode(transition(invited(), { type: 'cancel', by: B }, T0 + 1))).toBe('wrong_player')
+    expect(errCode(transition(invited(), { type: 'cancel', by: C }, T0 + 1))).toBe('wrong_player')
+  })
+
+  it('only while invited: not once accepted, declined, cancelled or complete', () => {
+    expect(errCode(transition(active(), { type: 'cancel', by: A }, T0 + 1))).toBe('wrong_status')
+    const declined = step(invited(), { type: 'decline', by: B }, T0 + 1)
+    expect(errCode(transition(declined, { type: 'cancel', by: A }, T0 + 2))).toBe('wrong_status')
+    const cancelled = step(invited(), { type: 'cancel', by: A }, T0 + 1)
+    expect(errCode(transition(cancelled, { type: 'cancel', by: A }, T0 + 2))).toBe('wrong_status')
+  })
+
+  it('not after the invite has expired', () => {
+    expect(errCode(transition(invited(), { type: 'cancel', by: A }, T0 + INVITE))).toBe('invite_expired')
+    const expired = step(invited(), { type: 'inviteExpiry' }, T0 + INVITE)
+    expect(errCode(transition(expired, { type: 'cancel', by: A }, T0 + INVITE + 1))).toBe('invite_expired')
+  })
+
+  it('a cancelled challenge cannot be accepted or declined', () => {
+    const cancelled = step(invited(), { type: 'cancel', by: A }, T0 + 1)
+    const accept = transition(cancelled, { type: 'accept', by: B, round2Skill: 'Backflip' }, T0 + 2)
+    expect(errCode(accept)).toBe('wrong_status')
+    expect(!accept.ok && accept.error.message).toBe('The challenger cancelled this challenge.')
+    expect(errCode(transition(cancelled, { type: 'decline', by: B }, T0 + 2))).toBe('wrong_status')
+    expect(dueAction(cancelled, T0 + 10 * INVITE)).toBeNull()
+  })
+})
+
+// ── invite expiry (D51) ────────────────────────────────────────────────────
+
+describe('invite expiry', () => {
+  it('stores the expiry time on the battle, from the mode config', () => {
+    expect(invited().inviteExpiresAt).toBe(T0 + INVITE)
+    expect(INVITE).toBeLessThan(MODES.standard.inviteWindowMs)
+    const std = ok(createBattle({ playerA: A, playerB: B, modeId: 'standard', round1Skill: 'Juggling' }, T0)).state
+    expect(std.inviteExpiresAt).toBe(T0 + 24 * 60 * 60 * 1000)
+  })
+
+  it('is not due and cannot be applied before the deadline', () => {
+    expect(dueAction(invited(), T0 + INVITE - 1)).toBeNull()
+    expect(errCode(transition(invited(), { type: 'inviteExpiry' }, T0 + INVITE - 1))).toBe('deadline_not_reached')
+    // B can still answer one millisecond before.
+    expect(ok(transition(invited(), { type: 'accept', by: B, round2Skill: 'Backflip' }, T0 + INVITE - 1)).state.status).toBe('active')
+  })
+
+  it('expires exactly at the deadline', () => {
+    expect(dueAction(invited(), T0 + INVITE)).toBe('inviteExpiry')
+    const r = ok(transition(invited(), { type: 'inviteExpiry' }, T0 + INVITE))
+    expect(r.state.status).toBe('expired')
+    expect(r.state.respondedAt).toBe(T0 + INVITE)
+    expect(r.events).toEqual([{ type: 'battle_expired' }])
+  })
+
+  it('a late sweep gives the same state as an on-time one', () => {
+    const onTime = step(invited(), { type: 'inviteExpiry' }, T0 + INVITE)
+    const late = step(invited(), { type: 'inviteExpiry' }, T0 + 50 * INVITE)
+    expect(late).toEqual(onTime)
+  })
+
+  it('is idempotent: once expired, nothing is due and a second run is refused without change', () => {
+    const expired = step(invited(), { type: 'inviteExpiry' }, T0 + INVITE)
+    expect(dueAction(expired, T0 + 2 * INVITE)).toBeNull()
+    expect(errCode(transition(expired, { type: 'inviteExpiry' }, T0 + 2 * INVITE))).toBe('wrong_status')
+  })
+
+  it("can't accept or decline an expired invite", () => {
+    // At the deadline, before any sweep has run:
+    expect(errCode(transition(invited(), { type: 'accept', by: B, round2Skill: 'Backflip' }, T0 + INVITE))).toBe('invite_expired')
+    expect(errCode(transition(invited(), { type: 'decline', by: B }, T0 + INVITE))).toBe('invite_expired')
+    // After the sweep marked it expired:
+    const expired = step(invited(), { type: 'inviteExpiry' }, T0 + INVITE)
+    const accept = transition(expired, { type: 'accept', by: B, round2Skill: 'Backflip' }, T0 + INVITE + 1)
+    expect(errCode(accept)).toBe('invite_expired')
+    expect(!accept.ok && accept.error.message).toBe('This challenge expired.')
+  })
+
+  it('does not apply to accepted battles', () => {
+    const s = active(T0 + 1)
+    expect(errCode(transition(s, { type: 'inviteExpiry' }, T0 + 10 * INVITE))).toBe('wrong_status')
+    expect(dueAction(s, T0 + 1 + SUBMIT - 1)).toBeNull()
+  })
+
+  it('battles created before the expiry field existed expire 24h (mode window) after creation', () => {
+    const legacy = { ...invited() }
+    delete legacy.inviteExpiresAt
+    expect(inviteDeadline(legacy)).toBe(T0 + INVITE)
+    expect(dueAction(legacy, T0 + INVITE)).toBe('inviteExpiry')
+    expect(step(legacy, { type: 'inviteExpiry' }, T0 + INVITE).status).toBe('expired')
   })
 })

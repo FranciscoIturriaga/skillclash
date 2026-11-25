@@ -117,7 +117,7 @@ const challenge: ActionHandler<Env> = async (ctx) => {
     } catch (e) {
       return toActionResult(err('storage_error', e instanceof Error ? e.message : String(e)))
     }
-    if (findOpenBattle(between, ctx.userId, opponentId)) {
+    if (findOpenBattle(between, ctx.userId, opponentId, Date.now())) {
       return toActionResult(err('open_battle_exists', `You already have an open battle with @${opponentName}.`))
     }
   }
@@ -177,6 +177,20 @@ const declineChallenge: ActionHandler<Env> = async (ctx) => {
     ctx.tools,
     battleId,
     () => ({ type: 'decline', by: ctx.userId }),
+    ctx.userId,
+    Date.now(),
+    makeEventHook(ctx.env, ctx.tools),
+  )
+  return toActionResult(r.ok ? { ok: true, value: { version: r.value.state.version } } : r)
+}
+
+/** The challenger withdraws an unanswered invite (D50). No email. */
+const cancelChallenge: ActionHandler<Env> = async (ctx) => {
+  const battleId = String(ctx.params.battleId ?? '')
+  const r = await runAction(
+    ctx.tools,
+    battleId,
+    () => ({ type: 'cancel', by: ctx.userId }),
     ctx.userId,
     Date.now(),
     makeEventHook(ctx.env, ctx.tools),
@@ -332,6 +346,7 @@ export const battleActions: Record<string, ActionHandler<Env>> = {
   challenge,
   acceptChallenge,
   declineChallenge,
+  cancelChallenge,
   submitVideo,
   castVote,
   syncBattle,

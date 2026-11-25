@@ -15,11 +15,12 @@ import { Link, useParams } from 'react-router-dom'
 import { AuthOverlay, useAuth, useQuery } from 'deepspace'
 import { Check, ChevronDown, Clock, EyeOff, Lock, Trophy, Vote, X } from 'lucide-react'
 import { Button, EmptyState, Input, cn, useToast } from '@/components/ui'
-import { currentRoundState, roundPoints, sideOf, type BattleState, type RoundState, type Side } from '../../../battle/machine'
+import { currentRoundState, inviteDeadline, roundPoints, sideOf, type BattleState, type RoundState, type Side } from '../../../battle/machine'
 import { getMode } from '../../../battle/modes'
 import { roundDisplayOrder, runningScore, statusLabel, type BattleRowData, type SubmissionData } from '../../../battle/view'
 import { callAction } from '../../../lib/api'
-import { Countdown, LiveDot, Panel, PlayerTag, sideBorder, sideText } from '../../../components/game/bits'
+import { Countdown, ExpiresIn, LiveDot, Panel, PlayerTag, sideBorder, sideText } from '../../../components/game/bits'
+import { CancelChallenge } from '../../../components/game/CancelChallenge'
 import { VideoPlayer, VideoUploader } from '../../../components/game/VideoUploader'
 import { useUsernames } from '../../../components/game/usernames'
 
@@ -71,16 +72,26 @@ export default function BattlePage() {
       <MatchHeader state={state} viewerId={userId} />
 
       {state.status === 'invited' && (
-        <InvitePanel battleId={id} state={state} mySide={mySide} canWrite={canWrite} />
+        <InvitePanel battleId={id} state={state} mySide={mySide} canWrite={canWrite} onExpire={() => sync(1500)} />
       )}
       {state.status === 'declined' && (
         <Panel className="p-5 text-center text-muted-foreground">
           <PlayerTag userId={state.playerB} side="b" /> declined this challenge.
         </Panel>
       )}
+      {state.status === 'cancelled' && (
+        <Panel className="p-5 text-center text-muted-foreground" data-testid="battle-cancelled">
+          {mySide === 'a' ? 'You' : <PlayerTag userId={state.playerA} side="a" />} cancelled this challenge.
+        </Panel>
+      )}
+      {state.status === 'expired' && (
+        <Panel className="p-5 text-center text-muted-foreground" data-testid="battle-expired">
+          This challenge expired: <PlayerTag userId={state.playerB} side="b" /> didn't answer in time.
+        </Panel>
+      )}
       {state.status === 'complete' && state.result && <ResultPanel state={state} />}
 
-      {state.status !== 'declined' &&
+      {(state.status === 'invited' || state.status === 'active' || state.status === 'complete') &&
         roundDisplayOrder(state).map(({ round, collapsible }) => (
           <RoundPanel
             key={round.number}
@@ -119,7 +130,7 @@ function MatchHeader({ state, viewerId }: { state: BattleState; viewerId: string
       <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
         <Corner userId={state.playerA} side="a" winner={state.result?.winner === 'a'} />
         <div className="font-display text-center text-5xl font-extrabold italic leading-none tabular-nums" data-testid="battle-score">
-          {state.status === 'invited' || state.status === 'declined' ? (
+          {state.status !== 'active' && state.status !== 'complete' ? (
             <span className="text-muted-foreground">VS</span>
           ) : (
             <>
@@ -151,20 +162,39 @@ function Corner({ userId, side, winner, align }: { userId: string; side: Side; w
 
 // ─── Invite ─────────────────────────────────────────────────────────────────
 
-function InvitePanel({ battleId, state, mySide, canWrite }: { battleId: string; state: BattleState; mySide: Side | null; canWrite: boolean }) {
+function InvitePanel({
+  battleId,
+  state,
+  mySide,
+  canWrite,
+  onExpire,
+}: {
+  battleId: string
+  state: BattleState
+  mySide: Side | null
+  canWrite: boolean
+  onExpire: () => void
+}) {
   const toast = useToast()
   const [skill, setSkill] = useState('')
   const [busy, setBusy] = useState<'accept' | 'decline' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const expiresAt = inviteDeadline(state)
 
   if (mySide !== 'b') {
     return (
-      <Panel className="flex items-center gap-3 p-5 text-sm text-muted-foreground">
-        <Clock className="size-5 shrink-0" aria-hidden />
-        <span>
-          Waiting for <PlayerTag userId={state.playerB} side="b" /> to accept. Round 1:{' '}
-          <span className="font-semibold text-foreground">{state.rounds[0].skill}</span>
-        </span>
+      <Panel className="space-y-4 p-5 text-sm text-muted-foreground">
+        <div className="flex items-start gap-3">
+          <Clock className="mt-0.5 size-5 shrink-0" aria-hidden />
+          <div className="min-w-0 space-y-1">
+            <p>
+              Waiting for <PlayerTag userId={state.playerB} side="b" /> to accept. Round 1:{' '}
+              <span className="font-semibold text-foreground">{state.rounds[0].skill}</span>
+            </p>
+            <ExpiresIn at={expiresAt} onExpire={onExpire} className="text-xs" />
+          </div>
+        </div>
+        {mySide === 'a' && <CancelChallenge battleId={battleId} disabled={!canWrite} />}
       </Panel>
     )
   }
@@ -196,6 +226,7 @@ function InvitePanel({ battleId, state, mySide, canWrite }: { battleId: string; 
           <p className="mt-1 text-sm text-muted-foreground">
             Round 1 skill: <span className="font-semibold text-foreground">{state.rounds[0].skill}</span>. Accept by picking round 2's skill.
           </p>
+          <ExpiresIn at={expiresAt} onExpire={onExpire} className="mt-1 text-xs text-muted-foreground" />
         </div>
         <Input
           aria-label="Round 2 skill"
@@ -266,7 +297,7 @@ function RoundPanel({
         <div className={cn('flex items-start justify-between gap-3 px-5 py-4', !collapsible && 'border-b border-border')}>
           <div className="min-w-0">
             <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-muted-foreground">Round {round.number}</p>
-            <p className="mt-0.5 font-semibold">{skillLine}</p>
+            <p className="mt-0.5 break-words font-semibold">{skillLine}</p>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
             <span
@@ -322,7 +353,11 @@ function RoundPanel({
       <section data-testid={`round-${round.number}`} aria-label={`Round ${round.number}`}>
         {collapsible ? (
           <details className="group">
-            <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden" data-testid={`round-${round.number}-toggle`}>
+            {/* No outline on tap/click; a ring like the Button's for keyboard focus only. */}
+            <summary
+              className="cursor-pointer list-none rounded-2xl outline-none [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden"
+              data-testid={`round-${round.number}-toggle`}
+            >
               {header}
               <RoundSummary state={state} round={round} />
             </summary>
@@ -476,41 +511,36 @@ function RevealedRound({
     }
   }
 
-  const points = outcome ? roundPoints(outcome) : null
   const players = useMemo(() => ({ a: state.playerA, b: state.playerB }), [state.playerA, state.playerB])
+  // A closed round is always shown collapsed under its summary chips (D46),
+  // which already carry each player's result, votes and points. Expanded, it
+  // adds only what's new: the videos and round 3's skill names (D52).
+  const filmed = (['a', 'b'] as const).filter((s) => round.submitted[s])
+  const missed = (['a', 'b'] as const).filter((s) => !round.submitted[s])
+
+  if (filmed.length === 0) {
+    return (
+      <p className="text-center text-sm text-muted-foreground" data-testid={`round-${round.number}-both-missed`}>
+        Both players missed the deadline. No points awarded.
+      </p>
+    )
+  }
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 sm:grid-cols-2">
-        {(['a', 'b'] as const).map((side) => {
+      <div className={cn('grid min-w-0 grid-cols-1 gap-4', filmed.length === 2 && 'sm:grid-cols-2')}>
+        {filmed.map((side) => {
           const sub = side === 'a' ? subA : subB
-          const submitted = round.submitted[side]
-          const won = outcome && outcome.kind !== 'both_missed' && outcome.winner === side
           return (
-            <div key={side} className={cn('rounded-xl border-t-4 bg-background p-3', sideBorder[side])} data-testid={`round-${round.number}-${side}`}>
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <PlayerTag userId={players[side]} side={side} className="text-sm" />
-                {won && <Trophy className="size-4 text-primary" aria-label="Round winner" />}
+            <div key={side} className={cn('min-w-0 rounded-xl border-t-4 bg-background p-3', sideBorder[side])} data-testid={`round-${round.number}-${side}`}>
+              <div className="mb-2 flex min-w-0 items-center gap-2">
+                <PlayerTag userId={players[side]} side={side} className="min-w-0 text-sm" />
               </div>
-              {round.number === 3 && sub?.skill && <p className="mb-2 text-sm font-medium">{sub.skill}</p>}
-              {submitted && sub?.fileKey ? (
+              {round.number === 3 && sub?.skill && <p className="mb-2 break-words text-sm font-medium">{sub.skill}</p>}
+              {sub?.fileKey ? (
                 <VideoPlayer fileKey={sub.fileKey} label={`@${nameOf(players[side]) ?? 'player'}'s attempt`} />
-              ) : submitted ? (
-                <div className="flex aspect-[9/16] max-h-[60vh] items-center justify-center rounded-xl bg-black/40 text-sm text-muted-foreground">Loading video…</div>
               ) : (
-                <div className="flex aspect-[9/16] max-h-[30vh] items-center justify-center rounded-xl border border-dashed border-border text-sm text-muted-foreground">
-                  Missed the deadline
-                </div>
-              )}
-              {outcome?.kind === 'votes' && (
-                <p className="mt-2 text-sm">
-                  <span className="font-display text-2xl font-extrabold tabular-nums">{side === 'a' ? outcome.votesA : outcome.votesB}</span>{' '}
-                  <span className="text-muted-foreground">votes</span>
-                  {points && <span className={cn('ml-2 font-semibold', sideText[side])}>+{points[side]} pts</span>}
-                </p>
-              )}
-              {outcome && outcome.kind !== 'votes' && points && (
-                <p className={cn('mt-2 text-sm font-semibold', sideText[side])}>+{points[side]} pts</p>
+                <div className="flex aspect-[9/16] max-h-[60vh] w-full items-center justify-center rounded-xl bg-black/40 text-sm text-muted-foreground">Loading video…</div>
               )}
               {voting && canVote && (
                 <Button
@@ -533,42 +563,35 @@ function RevealedRound({
         })}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-        <span className="text-muted-foreground" data-testid={`round-${round.number}-total-votes`}>
-          <span className="font-display text-lg font-bold text-foreground tabular-nums">{totalVotes}</span> {totalVotes === 1 ? 'vote' : 'votes'}
-          {voting && ' so far · results hidden until voting closes'}
-        </span>
-        {voting && mySide && <span className="text-muted-foreground">Players can't vote in their own battle.</span>}
-        {voting && !signedIn && (
-          <Button variant="outline" size="sm" onClick={() => setShowAuth(true)}>
-            Sign in to vote
-          </Button>
-        )}
-      </div>
-      {outcome && <OutcomeLine round={round} players={players} />}
+      {missed.map((side) => (
+        <p
+          key={side}
+          className="flex min-w-0 flex-wrap items-center justify-center gap-x-1.5 rounded-lg border border-dashed border-border px-3 py-2.5 text-center text-sm text-muted-foreground"
+          data-testid={`round-${round.number}-${side}-missed`}
+        >
+          <PlayerTag userId={players[side]} side={side} className="max-w-full" />
+          <span aria-hidden>·</span> Missed the deadline <span aria-hidden>·</span>
+          <span className={cn('font-semibold', sideText[side])}>+{outcome ? roundPoints(outcome)[side] : 0} pts</span>
+        </p>
+      ))}
+
+      {voting && (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+          <span className="text-muted-foreground" data-testid={`round-${round.number}-total-votes`}>
+            <span className="font-display text-lg font-bold text-foreground tabular-nums">{totalVotes}</span> {totalVotes === 1 ? 'vote' : 'votes'}
+            {' so far · results hidden until voting closes'}
+          </span>
+          {mySide && <span className="text-muted-foreground">Players can't vote in their own battle.</span>}
+          {!signedIn && (
+            <Button variant="outline" size="sm" onClick={() => setShowAuth(true)}>
+              Sign in to vote
+            </Button>
+          )}
+        </div>
+      )}
       {showAuth && <AuthOverlay onClose={() => setShowAuth(false)} />}
     </div>
   )
-}
-
-function OutcomeLine({ round, players }: { round: RoundState; players: Record<Side, string> }) {
-  const o = round.outcome!
-  let text: React.ReactNode
-  if (o.kind === 'both_missed') text = 'Both players missed the deadline. No points.'
-  else if (o.kind === 'forfeit')
-    text = (
-      <>
-        <PlayerTag userId={players[o.winner]} side={o.winner} /> wins by forfeit (opponent didn't submit).
-      </>
-    )
-  else if (o.winner === 'tie') text = o.votesA + o.votesB === 0 ? 'No votes: tie, +5 each.' : 'Tied on votes: +5 each.'
-  else
-    text = (
-      <>
-        <PlayerTag userId={players[o.winner]} side={o.winner} /> takes the round.
-      </>
-    )
-  return <p className="rounded-lg bg-secondary px-3 py-2 text-sm" data-testid={`round-${round.number}-outcome`}>{text}</p>
 }
 
 // ─── Result ─────────────────────────────────────────────────────────────────

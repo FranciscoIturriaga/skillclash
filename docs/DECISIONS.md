@@ -304,7 +304,7 @@ After the fixes: 12 passed, 0 failed, 0 skipped; 47 unit tests pass.
 ### D47. One open battle per pair
 - **Decided:** `challenge` refuses with `open_battle_exists` and "You already have an open battle with @username." when the two players already have an `invited` or `active` battle in either direction. The check (`findOpenBattle`) is pure and unit tested. The spec checks both directions against the server.
 - **Known gap:** it's a read-then-write check, not a database constraint, so two challenges sent within milliseconds of each other could both pass. A unique "pair lock" row would close that but needs releasing on decline and completion. Not worth the risk before the deadline.
-- **Interaction:** a sent invite can't be cancelled by the challenger and never expires, so an ignored invite blocks the pair until the opponent declines or accepts. The battle spec now declines B's leftover invites before challenging.
+- **Interaction:** a sent invite can't be cancelled by the challenger and never expires, so an ignored invite blocks the pair until the opponent declines or accepts. The battle spec now declines B's leftover invites before challenging. *(Superseded by D50 and D51: invites can now be cancelled and expire after 24h.)*
 
 ### D48. Test-mode battles send no email
 - **Decided:** `emailsEnabledFor(state)` is false for `modeId === 'test'`. Both the challenge email and the result emails are skipped, and the skip is logged (`[email] ... skipped (test mode)`).
@@ -314,3 +314,29 @@ After the fixes: 12 passed, 0 failed, 0 skipped; 47 unit tests pass.
 - **Finding:** the live iPhone upload (`biBS3…mov`, iPhone 14) is H.264 (`avc1`) 1920×1080 with AAC audio, plus Apple metadata (`mebx`) tracks that browsers ignore. The Photo Booth upload is also H.264 (1620×1080). Both played as 403s because of D43, not because of their codec.
 - **Decided:** the requested fallback message and uploader hint were conditional on HEVC being the problem. It isn't, so neither was built (no scope added on deadline day).
 - **Known limitation:** an iPhone set to "High Efficiency" can record HEVC (`hvc1`), which desktop Chrome may not decode depending on OS and hardware. Such a video would show a blank player in that browser. Workaround: on iPhone, Settings > Camera > Formats > Most Compatible. No transcoding.
+
+## Phase 7: cancel, expiry, past-round view (2026-11-25)
+
+### D50. The challenger can cancel an unanswered invite
+- **Decided:** new machine action `cancel` (by the challenger only, only while `invited` and before the invite deadline) moves the battle to a new final status, `cancelled`. It goes through the same path as every other change: the `cancelChallenge` server action calls `runAction` (lazy deadline check, then the `battle_transitions` claim, D10). Errors: `wrong_player` for anyone but Player A, `wrong_status` once answered/cancelled, `invite_expired` at or after the deadline.
+- **UI:** "Cancel challenge" with an inline confirm ("Keep it" / "Yes, cancel") on the challenger's invite panel and under each card in "Sent challenges". The control sits outside the card's link, so there's no button inside an `<a>`. The opponent's page says "@a cancelled this challenge"; both players see it under Finished with the label "Cancelled".
+- **Pair rule:** `cancelled` isn't in `OPEN_STATUSES`, so the pair can challenge again at once (tested in the browser spec).
+- **No email** for a cancel: the event hook only reacts to `battle_completed`.
+- **Accepting a cancelled invite** now says "The challenger cancelled this challenge." instead of the generic "already answered".
+
+### D51. Invites expire after the mode's invite window (24h in Standard)
+- **Decided:** each mode has `inviteWindowMs` (Standard 24h, Test 5 min). `createBattle` stores `inviteExpiresAt = createdAt + inviteWindowMs` in the battle state, and `rowFromState` mirrors it into the row's `nextDeadline` while the battle is `invited`. A new time-driven action `inviteExpiry` moves the battle to `expired`, stamped with the deadline itself (`respondedAt = inviteExpiresAt`), so a late sweep gives exactly the same state as an on-time one.
+- **Exactly at the deadline** the invite is expired: `dueAction` returns `inviteExpiry` when `now >= inviteExpiresAt`, and accept/decline/cancel at that moment fail with `invite_expired` even before any sweep runs. One millisecond earlier, B can still accept.
+- **Who applies it:** the every-minute cron sweep now reads `invited` battles as well as `active` ones and advances any battle `dueAction` says is due; `advance` (the lazy check every action runs) handles `inviteExpiry` like the other deadlines. Both are idempotent: an expired battle has nothing due, and a second `inviteExpiry` is refused with no change. The battle page also calls `syncBattle` when the countdown reaches zero.
+- **Battles created before this change** have no `inviteExpiresAt`. `inviteDeadline()` falls back to `createdAt + inviteWindowMs`, and the sweep decides from the state (not `nextDeadline`, which is null on those rows), so old invites older than 24h expire on the first sweep after deploy.
+- **Pair rule:** `expired` frees the pair. `findOpenBattle` also ignores an `invited` row whose `nextDeadline` has passed, so a lapsed invite doesn't block a new challenge in the up-to-a-minute gap before the sweep marks it.
+- **UI:** "Expires in 23h" (coarse, rounded down; minutes under an hour) on invite cards and the invite panel. Expired battles say "This challenge expired: @b didn't answer in time." and show under Finished as "Expired".
+- **No email** for expiry.
+- **Schema:** `battles.status` select options gain `cancelled` and `expired`.
+
+### D52. Expanded past rounds don't repeat the summary
+- **Decided:** a closed round is always shown collapsed under summary chips that already hold each player's votes/result and points (D46). Expanded, it now adds only the videos and round 3's skill names. Removed from the expanded view: per-player vote counts and points, the round total, and the "takes the round" line. A player who missed the deadline gets one short full-width row ("@name · Missed the deadline · +0 pts") instead of a tall empty video box. If both missed: "Both players missed the deadline. No points awarded."
+- **Focus:** the round header (`<summary>`) has no outline on tap/click and no mobile tap highlight; keyboard focus shows the same 3px `ring-ring/50` ring the Buttons use (`focus-visible` only).
+- **Mobile:** the video grid is one column below `sm` (two only when both filmed, on wider screens); cards and tags have `min-w-0` and long skill names wrap. The browser spec checks at 375px that the cards stack, the video spans the card minus its padding, and the page has no horizontal overflow.
+- **Tests:** the spec now reads round results from the summary chips (`round-N-summary`), since the old outcome line is gone.
+

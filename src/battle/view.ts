@@ -5,6 +5,7 @@
 
 import {
   currentRoundState,
+  inviteDeadline,
   roundPoints,
   sideOf,
   type BattleState,
@@ -44,7 +45,7 @@ export function bucketFor(state: BattleState, userId: string): MyBucket | null {
   const side = sideOf(state, userId)
   if (!side) return null
   if (state.status === 'invited') return side === 'b' ? 'invite' : 'sent'
-  if (state.status === 'declined' || state.status === 'complete') return 'finished'
+  if (state.status !== 'active') return 'finished' // declined, cancelled, expired, complete
   const round = currentRoundState(state)
   if (round?.phase === 'submit' && !round.submitted[side]) return 'my_turn'
   return 'in_progress'
@@ -58,6 +59,10 @@ export function statusLabel(state: BattleState, userId: string | null): string {
       return side === 'b' ? 'Challenge received' : side === 'a' ? 'Waiting for opponent' : 'Challenge sent'
     case 'declined':
       return 'Declined'
+    case 'cancelled':
+      return 'Cancelled'
+    case 'expired':
+      return 'Expired'
     case 'complete':
       if (!state.result) return 'Final'
       if (state.result.winner === 'draw') return 'Draw'
@@ -80,6 +85,20 @@ export function activeDeadline(state: BattleState): { at: number; kind: 'submit'
   if (r.phase === 'submit' && r.submitDeadline) return { at: r.submitDeadline, kind: 'submit' }
   if (r.phase === 'vote' && r.voteDeadline) return { at: r.voteDeadline, kind: 'vote' }
   return null
+}
+
+/** When an open invite expires, or null if the battle isn't waiting for an answer. */
+export function inviteExpiry(state: BattleState): number | null {
+  return state.status === 'invited' ? inviteDeadline(state) : null
+}
+
+/** Coarse time left for an invite: "23h", "45m", "<1m". Rounds down, like a countdown. */
+export function formatExpiresIn(ms: number): string {
+  if (ms <= 0) return 'now'
+  const minutes = Math.floor(ms / 60_000)
+  if (minutes < 1) return '<1m'
+  if (minutes < 60) return `${minutes}m`
+  return `${Math.floor(minutes / 60)}h`
 }
 
 /** "11:59:03", "4:05", "0:09". */

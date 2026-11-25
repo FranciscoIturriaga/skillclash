@@ -2,7 +2,8 @@
  * Cron tasks, registered into the AppCronRoom DO (worker.ts).
  *
  * `battle-sweep` runs every minute (the finest interval available) and moves
- * battles past their deadlines: closes submission windows and tallies votes.
+ * battles past their deadlines: expires unanswered invites (D51), closes
+ * submission windows and tallies votes.
  * Every server action also does this lazily for the battle it touches, so the
  * sweep only matters for battles nobody is looking at. Both paths go through
  * src/battle/service.ts, and both are idempotent: a second run finds nothing due.
@@ -12,6 +13,7 @@ import type { CronTask } from 'deepspace/worker'
 import type { Env } from '../worker'
 import { createActionTools } from './server/action-routes'
 import { advance, queryAll, revealEndedRounds, type BattleRow } from './battle/service'
+import { dueAction } from './battle/machine'
 import { makeEventHook } from './battle/notify'
 
 export const tasks: CronTask[] = [{ name: 'battle-sweep', intervalMinutes: 1 }]
@@ -24,15 +26,20 @@ export async function battleSweep(env: Env): Promise<void> {
   const tools = createActionTools(env, env.OWNER_USER_ID, '')
   const hook = makeEventHook(env, tools)
   const now = Date.now()
-  const active = await queryAll<BattleRow & Record<string, unknown>>(tools, 'battles', { status: 'active' })
+  const [active, invited] = await Promise.all([
+    queryAll<BattleRow & Record<string, unknown>>(tools, 'battles', { status: 'active' }),
+    queryAll<BattleRow & Record<string, unknown>>(tools, 'battles', { status: 'invited' }),
+  ])
 
   let advanced = 0
   let failed = 0
-  for (const b of active) {
+  for (const b of [...active, ...invited]) {
     try {
       // Always heal reveals (cheap), then advance only battles with a passed deadline.
-      await revealEndedRounds(tools, b.recordId, b.data.state)
-      if (b.data.nextDeadline !== null && b.data.nextDeadline <= now) {
+      if (b.data.status === 'active') await revealEndedRounds(tools, b.recordId, b.data.state)
+      // dueAction reads the state, so invites created before D51 (no stored
+      // expiry, nextDeadline null) still expire 24h after creation.
+      if (dueAction(b.data.state, now)) {
         const r = await advance(tools, b.recordId, now, 'cron', hook)
         if (r.ok) {
           if (r.value.version !== b.data.version) advanced++
@@ -46,5 +53,5 @@ export async function battleSweep(env: Env): Promise<void> {
       console.error(`[cron] battle-sweep ${b.recordId}: ${e instanceof Error ? e.message : String(e)}`)
     }
   }
-  console.log(`[cron] battle-sweep active=${active.length} advanced=${advanced} failed=${failed}`)
+  console.log(`[cron] battle-sweep active=${active.length} invited=${invited.length} advanced=${advanced} failed=${failed}`)
 }

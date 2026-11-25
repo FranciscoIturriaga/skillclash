@@ -55,7 +55,7 @@ export const battlesSchema: CollectionSchema = {
     {
       name: 'status',
       storage: 'text',
-      interpretation: { kind: 'select', options: ['invited', 'declined', 'active', 'complete'] },
+      interpretation: { kind: 'select', options: ['invited', 'declined', 'cancelled', 'expired', 'active', 'complete'] },
       required: true,
     },
     { name: 'phase', storage: 'text', interpretation: 'plain' },

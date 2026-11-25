@@ -7,13 +7,14 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 
 ## Current status
 - MVP is built and deployed: state machine, schemas and server actions, cron sweep (confirmed running in prod logs), files guard, full arena-themed UI, two emails (challenge, battle result).
-- `npx deepspace test run all --port 5181`: 12/12 pass, including `tests/battle.spec.ts` (3-user full battle, ~1.6 min; also checks video access before/after reveal, the one-open-battle rule and round order). 54 vitest unit tests pass.
+- `npx deepspace test run all --port 5181`: 13/13 pass, including `tests/battle.spec.ts` (3-user full battle, ~1.6 min, plus a 375px layout check; and a cancel-invite test that re-challenges the pair). 72 vitest unit tests pass.
 - Test accounts (by name in the spec): "Player A" = fi-skillclash-a@deepspace.test, "Player B" = fi-skillclash-b@deepspace.test, "Voter C" = voter-c@deepspace.test (stored in `~/.deepspace/test-accounts.json`).
 - Email delivery not yet confirmed in production logs (no real battle finished on prod). Test-mode battles send no email (D48).
 - Deployed and pushed at 596dc0c (2026-11-25). After deploy, the two revealed .mov clips return 206 `video/quicktime` with Range (curl). **Not yet checked:** actual playback in desktop Chrome (the Chrome extension wasn't connected).
-- Working tree clean. Decisions D1–D49 in `docs/DECISIONS.md`.
+- Decisions D1–D52 in `docs/DECISIONS.md`.
 
 ## Recent changes
+- 2026-11-25: Challenger can cancel an unanswered invite (`cancelled`, D50). Invites expire after the mode's `inviteWindowMs` (24h Standard, 5 min Test) via cron + lazy check (`expired`, D51). Expanded past rounds show only videos/skills; missed players get a one-line row; summary has keyboard-only focus ring (D52).
 - 2026-11-25: Fixed blank videos: the player URL lacked the `apps/<appId>/` key prefix, so the platform answered 403 (D43). Files proxy now serves a video only to its uploader until reveal (D44). Feed card shows the current round's skill (D45). Battle page: current round first, past rounds collapsed newest first (D46). One open battle per pair (D47). No emails for test mode (D48). iPhone uploads checked: H.264, not HEVC (D49).
 - 2026-11-24: Username gate moved inside `<main>` (nav stays visible), loading state added, `/settings` and `/api-status` exempt; battle spec uses named accounts (04ad0a1, D42).
 - 2026-11-24: Phase 5 three-user battle spec (496d3af), Phase 4 emails (cca9b1e), Phase 3 UI (e0628b4). All deployed.
@@ -30,6 +31,7 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - **Video privacy:** videos upload to `app` scope under an unguessable key `videos/<uid>/<24 random chars>.<ext>`; the key stays on the hidden submission row until the submit window ends (reveal step), and the files proxy refuses non-uploaders until a revealed submission uses that key (D44). Limits 20 s / 50 MB (D8).
 - **File keys:** submissions store the relative key (`videos/...`); `getUrl` needs the full key, so always go through `fullFileKey()` in `VideoUploader.tsx` (D43).
 - **Emails** (`src/battle/notify.ts`): recipient emails read server-side only; actions never return raw `users` rows. Result email fires once via the `battle_completed` event of the winning transition.
+- **Invites:** cancel (challenger only) and expiry (`inviteExpiresAt` in state; `inviteDeadline()` falls back to createdAt + window for old rows) both free the pair rule. No emails for either (D50, D51).
 - **Usernames:** every signed-in user must pick one (UsernameGate in `src/components/game/usernames.tsx`). Profiles live at `/u/<username>`.
 - Out of scope for MVP: Stripe, followers, DMs, tournaments, rankings.
 
@@ -37,7 +39,6 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - [ ] Open the battle with the Photo Booth and iPhone clips in desktop Chrome and confirm both play (D43).
 - [ ] Play one real battle on a phone; check `npx deepspace logs --search email` for `[email] ... sent`.
 - [ ] Demo mode with short windows and a seeded demo battle.
-- [ ] Let a challenger cancel a sent invite (not possible today). Matters more now: an ignored invite blocks the pair (D47).
 - [ ] Cron doesn't repair a stuck `invited` battle (D25); the next action on it does.
 - [ ] Server trusts the client-reported video duration; consider a server-side check.
 - [ ] HEVC iPhone videos may not play in desktop Chrome; no fallback UI yet (D49).

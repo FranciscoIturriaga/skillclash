@@ -6,6 +6,23 @@ This document is the source of truth for SkillClash game behavior. If code and t
 
 - Player A challenges Player B by username and picks a mode.
 - B accepts or declines. The battle starts only when B accepts.
+- Two players can have only one open (invited or active) battle with each other at a time, in either direction.
+
+### Cancelling an invite
+
+- While the invite is unanswered, Player A (and only Player A) can cancel it. The battle becomes **cancelled**; B sees it as cancelled and can no longer accept it.
+- A battle can't be cancelled once B has accepted or declined, or once the invite has expired.
+
+### Invite expiry
+
+- An invite that B hasn't answered within the mode's invite window (**24 hours** in Standard) expires automatically. The battle becomes **expired**.
+- The invite expires exactly at the deadline: from that moment it can't be accepted, declined or cancelled.
+- The expiry time is stored on the battle, and invites show the time left (e.g. "Expires in 23h").
+
+### Ending without being played
+
+- Declined, cancelled and expired battles award no points, don't count on profiles, and free the pair to challenge each other again.
+- No email is sent when a challenge is cancelled or expires.
 
 ## Rounds
 
@@ -35,12 +52,14 @@ A battle has 3 rounds, and all 3 are always played.
 
 Modes are stored as config, not hard-coded.
 
-| Mode     | Submission window | Voting window | Status          |
-| -------- | ----------------- | ------------- | --------------- |
-| Standard | 12h               | 3h            | MVP             |
-| Demo     | TBD               | TBD           | Added later     |
-| Quick    | 3h                | 1h            | Optional, later |
-| Casual   | 48h               | 12h           | Optional, later |
+| Mode     | Invite window | Submission window | Voting window | Status          |
+| -------- | ------------- | ----------------- | ------------- | --------------- |
+| Standard | 24h           | 12h               | 3h            | MVP             |
+| Demo     | TBD           | TBD               | TBD           | Added later     |
+| Quick    | TBD           | 3h                | 1h            | Optional, later |
+| Casual   | TBD           | 48h               | 12h           | Optional, later |
+
+A hidden Test mode (automated tests only) uses a 5-minute invite window, 3-minute submission window and 20-second voting window.
 
 ## Scoring
 

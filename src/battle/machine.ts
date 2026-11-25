@@ -11,7 +11,15 @@
  *
  *   invited ──accept (by B)──▶ active ──round 3 closes──▶ complete
  *      │
- *      └────decline (by B)──▶ declined
+ *      ├────decline (by B)──────────────▶ declined
+ *      ├────cancel (by A)───────────────▶ cancelled
+ *      └────invite deadline passes──────▶ expired   (inviteExpiry, time-driven)
+ *
+ *   An invite must be answered before `inviteExpiresAt` (the mode's invite
+ *   window after creation, 24h in Standard). At or after that moment it can
+ *   no longer be accepted, declined or cancelled; the cron sweep and the lazy
+ *   check in every action apply `inviteExpiry`. Declined, cancelled and
+ *   expired battles are final and free the one-open-battle-per-pair rule.
  *
  *   A battle is created by Player A challenging Player B (`createBattle`).
  *   Nothing is played until B accepts. All 3 rounds are always played.
@@ -46,7 +54,7 @@ import { getMode, type ModeId } from './modes'
 /** 'a' is the challenger, 'b' the challenged player. */
 export type Side = 'a' | 'b'
 export type RoundNumber = 1 | 2 | 3
-export type BattleStatus = 'invited' | 'declined' | 'active' | 'complete'
+export type BattleStatus = 'invited' | 'declined' | 'cancelled' | 'expired' | 'active' | 'complete'
 export type RoundPhase = 'pending' | 'submit' | 'vote' | 'closed'
 
 /** How a round ended. Points are derived from this by `roundPoints`. */
@@ -99,6 +107,12 @@ export interface BattleState {
   currentRound: RoundNumber | null
   rounds: [RoundState, RoundState, RoundState]
   createdAt: number
+  /**
+   * When an unanswered invite expires. Battles created before D51 lack it;
+   * read it through `inviteDeadline`, which falls back to createdAt + window.
+   */
+  inviteExpiresAt?: number | null
+  /** When B accepted/declined, A cancelled, or the invite expired. */
   respondedAt: number | null
   completedAt: number | null
   result: BattleResult | null
@@ -107,6 +121,10 @@ export interface BattleState {
 export type BattleAction =
   | { type: 'accept'; by: string; round2Skill: string }
   | { type: 'decline'; by: string }
+  /** The challenger withdraws an invite that hasn't been answered yet. */
+  | { type: 'cancel'; by: string }
+  /** The invite's answer deadline has passed. */
+  | { type: 'inviteExpiry' }
   | { type: 'submit'; by: string; round: RoundNumber }
   /** The current round's submission deadline has passed. */
   | { type: 'submissionDeadline' }
@@ -117,6 +135,8 @@ export type BattleAction =
 export type BattleEvent =
   | { type: 'battle_started' }
   | { type: 'battle_declined' }
+  | { type: 'battle_cancelled' }
+  | { type: 'battle_expired' }
   | { type: 'submitted'; round: RoundNumber; side: Side }
   | { type: 'round_revealed'; round: RoundNumber }
   | { type: 'round_closed'; round: RoundNumber; outcome: RoundOutcome }
@@ -130,6 +150,7 @@ export type MachineErrorCode =
   | 'not_a_player'
   | 'wrong_player'
   | 'wrong_status'
+  | 'invite_expired'
   | 'wrong_round'
   | 'wrong_phase'
   | 'already_submitted'
@@ -227,14 +248,20 @@ export function currentRoundState(state: BattleState): RoundState | null {
   return state.currentRound ? state.rounds[state.currentRound - 1] : null
 }
 
+/** When this battle's invite expires (stored, or createdAt + the mode's window for older battles). */
+export function inviteDeadline(state: BattleState): number {
+  if (typeof state.inviteExpiresAt === 'number') return state.inviteExpiresAt
+  return state.createdAt + (getMode(state.modeId)?.inviteWindowMs ?? 24 * 60 * 60 * 1000)
+}
+
+export type DueAction = 'inviteExpiry' | 'submissionDeadline' | 'closeVoting'
+
 /**
  * Which time-driven action is due right now, if any. The cron sweep and the
  * lazy check in server actions loop on this until it returns null.
  */
-export function dueAction(
-  state: BattleState,
-  now: number,
-): 'submissionDeadline' | 'closeVoting' | null {
+export function dueAction(state: BattleState, now: number): DueAction | null {
+  if (state.status === 'invited') return now >= inviteDeadline(state) ? 'inviteExpiry' : null
   const round = currentRoundState(state)
   if (state.status !== 'active' || !round) return null
   if (round.phase === 'submit' && round.submitDeadline !== null && now >= round.submitDeadline) {
@@ -248,6 +275,22 @@ export function dueAction(
 
 function fail(code: MachineErrorCode, message: string): MachineResult {
   return { ok: false, error: { code, message } }
+}
+
+/** Why an invite can't be answered or cancelled any more, or null if it still can. */
+function inviteClosed(state: BattleState, now: number): MachineResult | null {
+  switch (state.status) {
+    case 'invited':
+      return now >= inviteDeadline(state) ? fail('invite_expired', 'This challenge expired.') : null
+    case 'expired':
+      return fail('invite_expired', 'This challenge expired.')
+    case 'cancelled':
+      return fail('wrong_status', 'The challenger cancelled this challenge.')
+    case 'declined':
+      return fail('wrong_status', 'This challenge was declined.')
+    default:
+      return fail('wrong_status', 'This challenge was already answered.')
+  }
 }
 
 function emptyRound(number: RoundNumber, skill: string | null): RoundState {
@@ -337,6 +380,7 @@ export function createBattle(input: NewBattle, now: number): MachineResult {
     currentRound: null,
     rounds: [emptyRound(1, skill), emptyRound(2, null), emptyRound(3, null)],
     createdAt: now,
+    inviteExpiresAt: now + mode.inviteWindowMs,
     respondedAt: null,
     completedAt: null,
     result: null,
@@ -362,7 +406,8 @@ function apply(state: BattleState, action: BattleAction, now: number): MachineRe
   switch (action.type) {
     // B answers the challenge. Accepting names round 2's skill and opens round 1.
     case 'accept': {
-      if (state.status !== 'invited') return fail('wrong_status', 'This challenge was already answered.')
+      const closed = inviteClosed(state, now)
+      if (closed) return closed
       if (action.by !== state.playerB) return fail('wrong_player', 'Only the challenged player can accept.')
       const skill = normalizeSkill(action.round2Skill)
       if (!skill) return fail('invalid_skill', `Name a skill for round 2 (1–${SKILL_MAX_LENGTH} characters).`)
@@ -377,10 +422,30 @@ function apply(state: BattleState, action: BattleAction, now: number): MachineRe
     }
 
     case 'decline': {
-      if (state.status !== 'invited') return fail('wrong_status', 'This challenge was already answered.')
+      const closed = inviteClosed(state, now)
+      if (closed) return closed
       if (action.by !== state.playerB) return fail('wrong_player', 'Only the challenged player can decline.')
       events.push({ type: 'battle_declined' })
       return { ok: true, state: { ...state, status: 'declined', respondedAt: now }, events }
+    }
+
+    // A withdraws the invite before B answers.
+    case 'cancel': {
+      const closed = inviteClosed(state, now)
+      if (closed) return closed
+      if (action.by !== state.playerA) return fail('wrong_player', 'Only the challenger can cancel this challenge.')
+      events.push({ type: 'battle_cancelled' })
+      return { ok: true, state: { ...state, status: 'cancelled', respondedAt: now }, events }
+    }
+
+    // Nobody answered the invite in time.
+    case 'inviteExpiry': {
+      if (state.status !== 'invited') return fail('wrong_status', 'This challenge is no longer waiting for an answer.')
+      const at = inviteDeadline(state)
+      if (now < at) return fail('deadline_not_reached', 'The invite has not expired yet.')
+      events.push({ type: 'battle_expired' })
+      // Stamped with the deadline itself, so a late sweep gives the same state.
+      return { ok: true, state: { ...state, status: 'expired', respondedAt: at }, events }
     }
 
     // A player turns in their video for the current round.

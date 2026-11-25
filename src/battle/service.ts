@@ -20,6 +20,7 @@ import type { ActionResult, ActionTools } from 'deepspace/worker'
 import {
   currentRoundState,
   dueAction,
+  inviteDeadline,
   transition,
   type BattleAction,
   type BattleEvent,
@@ -116,7 +117,13 @@ export function submissionId(battleId: string, round: number, side: Side): strin
 export function rowFromState(state: BattleState): Omit<BattleRow, 'battleId' | 'playerA' | 'playerB' | 'modeId'> {
   const round = currentRoundState(state)
   const nextDeadline =
-    round?.phase === 'submit' ? round.submitDeadline : round?.phase === 'vote' ? round.voteDeadline : null
+    state.status === 'invited'
+      ? inviteDeadline(state)
+      : round?.phase === 'submit'
+        ? round.submitDeadline
+        : round?.phase === 'vote'
+          ? round.voteDeadline
+          : null
   return {
     status: state.status,
     phase: round?.phase ?? null,
@@ -262,7 +269,7 @@ async function commitOnce(
 
 /**
  * Bring a battle up to date with the clock: apply every deadline that has
- * passed (submission deadline, then vote close with the tally). Used lazily
+ * passed (invite expiry, submission deadline, vote close with the tally). Used lazily
  * by every action and by the cron sweep. Idempotent.
  */
 export async function advance(
@@ -290,6 +297,8 @@ export async function advance(
       if (now < round.voteDeadline! + VOTE_SETTLE_MS) break
       const tally = await countVotes(tools, battleId, round.number)
       action = { type: 'closeVoting', votesA: tally.a, votesB: tally.b }
+    } else if (due === 'inviteExpiry') {
+      action = { type: 'inviteExpiry' }
     } else {
       action = { type: 'submissionDeadline' }
     }
@@ -349,21 +358,33 @@ export function asRound(n: unknown): RoundNumber | null {
 
 // ─── One open battle per pair (D47) ─────────────────────────────────────────
 
-/** Statuses that count as "open": a pair may have only one battle in them. */
+/**
+ * Statuses that count as "open": a pair may have only one battle in them.
+ * Declined, cancelled, expired and complete battles free the pair (D50, D51).
+ */
 export const OPEN_STATUSES: ReadonlyArray<BattleRow['status']> = ['invited', 'active']
 
-/** The first open battle between x and y (either direction), or null. Pure. */
-export function findOpenBattle<R extends { playerA: string; playerB: string; status: string }>(
+/**
+ * The first open battle between x and y (either direction), or null. Pure.
+ * With `now`, an invite whose deadline (`nextDeadline`) has passed doesn't
+ * count, even if the sweep hasn't marked it expired yet.
+ */
+export function findOpenBattle<
+  R extends { playerA: string; playerB: string; status: string; nextDeadline?: number | null },
+>(
   rows: ReadonlyArray<{ recordId: string; data: R }>,
   x: string,
   y: string,
+  now?: number,
 ): { recordId: string; data: R } | null {
   return (
-    rows.find(
-      (r) =>
-        OPEN_STATUSES.includes(r.data.status as BattleRow['status']) &&
-        ((r.data.playerA === x && r.data.playerB === y) || (r.data.playerA === y && r.data.playerB === x)),
-    ) ?? null
+    rows.find((r) => {
+      if (!OPEN_STATUSES.includes(r.data.status as BattleRow['status'])) return false
+      const lapsed =
+        r.data.status === 'invited' && now !== undefined && typeof r.data.nextDeadline === 'number' && now >= r.data.nextDeadline
+      if (lapsed) return false
+      return (r.data.playerA === x && r.data.playerB === y) || (r.data.playerA === y && r.data.playerB === x)
+    }) ?? null
   )
 }
 

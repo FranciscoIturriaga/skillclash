@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createBattle, transition, type BattleAction, type BattleState, type MachineResult } from './machine'
-import { activeDeadline, bucketFor, formatCountdown, profileStats, roundDisplayOrder, runningScore, statusLabel } from './view'
+import { activeDeadline, bucketFor, formatCountdown, formatExpiresIn, inviteExpiry, profileStats, roundDisplayOrder, runningScore, statusLabel } from './view'
+import { MODES } from './modes'
 
 const A = 'user_a'
 const B = 'user_b'
@@ -84,5 +85,35 @@ describe('view helpers', () => {
     const done = playRound(r3, 0, 0)
     expect(done.status).toBe('complete')
     expect(order(done)).toEqual(['3c', '2c', '1c'])
+  })
+})
+
+describe('cancelled and expired invites (D50, D51)', () => {
+  const cancelled = () => step(invited(), { type: 'cancel', by: A }, T0 + 1)
+  const expired = () => step(invited(), { type: 'inviteExpiry' }, T0 + MODES.test.inviteWindowMs)
+
+  it('go to Finished for both players, with their own label', () => {
+    for (const s of [cancelled(), expired()]) {
+      expect(bucketFor(s, A)).toBe('finished')
+      expect(bucketFor(s, B)).toBe('finished')
+    }
+    expect(statusLabel(cancelled(), B)).toBe('Cancelled')
+    expect(statusLabel(expired(), A)).toBe('Expired')
+  })
+
+  it('only an open invite has an expiry to show', () => {
+    expect(inviteExpiry(invited())).toBe(T0 + MODES.test.inviteWindowMs)
+    expect(inviteExpiry(active())).toBeNull()
+    expect(inviteExpiry(cancelled())).toBeNull()
+    expect(inviteExpiry(expired())).toBeNull()
+  })
+
+  it('formats time left coarsely, rounding down', () => {
+    const H = 3_600_000
+    expect(formatExpiresIn(24 * H)).toBe('24h')
+    expect(formatExpiresIn(24 * H - 1)).toBe('23h')
+    expect(formatExpiresIn(59 * 60_000 + 59_000)).toBe('59m')
+    expect(formatExpiresIn(30_000)).toBe('<1m')
+    expect(formatExpiresIn(0)).toBe('now')
   })
 })

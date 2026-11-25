@@ -2,8 +2,8 @@ import { Link } from 'react-router-dom'
 import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { currentRoundState, type BattleState } from '../../battle/machine'
-import { activeDeadline, runningScore, statusLabel, roundLabel } from '../../battle/view'
-import { Countdown, LiveDot, PlayerTag } from './bits'
+import { activeDeadline, inviteExpiry, runningScore, statusLabel, roundLabel } from '../../battle/view'
+import { Countdown, ExpiresIn, LiveDot, PlayerTag } from './bits'
 
 /** One battle in a feed: "@a VS @b", status, score and the live countdown. */
 export function BattleCard({
@@ -18,6 +18,7 @@ export function BattleCard({
   highlight?: boolean
 }) {
   const deadline = activeDeadline(state)
+  const expiresAt = inviteExpiry(state)
   const score = state.result ? state.result.total : runningScore(state)
   const showScore = state.status === 'active' || state.status === 'complete'
   const voting = deadline?.kind === 'vote'
@@ -39,6 +40,7 @@ export function BattleCard({
           {statusLabel(state, viewerId)}
         </span>
         {deadline && <Countdown at={deadline.at} className="text-sm" />}
+        {expiresAt && <ExpiresIn at={expiresAt} className="normal-case tracking-normal" />}
       </div>
 
       <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
