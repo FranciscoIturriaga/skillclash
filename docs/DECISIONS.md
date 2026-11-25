@@ -248,3 +248,13 @@ Decisions made during setup without the product owner present. Each entry record
 - **What:** after submitting, the player sees their own video under "Submitted. Hidden from everyone until the round ends."
 - **Why:** reassurance that the upload worked; the RBAC rule already lets the uploader read their own row.
 - **Alternatives:** show only a checkmark.
+
+## Phase 4: email
+
+### D40. Two emails through `email/send`, sender fixed by the platform
+- **What:** "You've been challenged" goes to the opponent from the `challenge` action. "Battle result" goes to each player (personalised: won/lost/draw and the score) from the event hook when `battle_completed` fires. Both have HTML and plain-text bodies and link to the battle page.
+- **Sender behaviour observed:** `npx deepspace integrations info email/send` (live CLI) says it sends from `DeepSpace Apps <notifications@updates.app.space>` and that any `from` value is ignored. So the code sends no `from` at all. Replies would need `reply_to`; we don't set one. Billing is `developer` mode (owner pays, $0.013 per email): the result email costs $0.026 per battle.
+- **Exactly once:** the hook only runs for the caller whose transition claim won (D10), so a completed battle triggers one result email per player even when the cron and a viewer's sync race.
+- **Privacy:** recipient emails are read server-side from `users` and never returned to clients or logged (logs carry only battle id and side).
+- **Not verified live yet:** no real email has been sent, because the two-user flow needs test accounts (D32). After the owner plays a battle, `npx deepspace logs --search email` shows `[email] ... sent id=...` or the failure.
+- **Alternatives:** an email per round (noisy, more cost); a digest via cron (more moving parts).
