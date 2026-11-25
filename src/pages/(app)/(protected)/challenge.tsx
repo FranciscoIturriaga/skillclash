@@ -7,7 +7,7 @@
 
 import { useMemo, useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useAuth } from 'deepspace'
+import { useAuth, useQuery } from 'deepspace'
 import { Swords } from 'lucide-react'
 import { Button, Input, cn } from '@/components/ui'
 import { getMode, pickableModes } from '../../../battle/modes'
@@ -15,6 +15,9 @@ import { callAction } from '../../../lib/api'
 import { useUsernames } from '../../../components/game/usernames'
 import { VideoPicker, useVideoUpload, type PickedVideo } from '../../../components/game/VideoUploader'
 import { EnergyBar, useEnergy } from '../../../components/game/energy'
+import { OnlineDot, useOnline } from '../../../components/game/presence'
+import { onlinePastOpponents } from '../../../battle/opponents'
+import type { BattleRowData } from '../../../battle/view'
 
 export default function ChallengePage() {
   const { userId } = useAuth()
@@ -47,6 +50,23 @@ export default function ChallengePage() {
   }, [dir.all, query, exact, userId])
 
   const isSelf = exact !== null && exact === userId
+
+  // "Online now": past opponents (any mode, any status) who are online, most
+  // recent first, max 8 (D67). Never a list of everyone online.
+  const online = useOnline()
+  const asA = useQuery<BattleRowData>('battles', { where: { playerA: userId }, orderBy: 'createdAt', orderDir: 'desc', limit: 100 })
+  const asB = useQuery<BattleRowData>('battles', { where: { playerB: userId }, orderBy: 'createdAt', orderDir: 'desc', limit: 100 })
+  const historyReady = asA.status === 'ready' && asB.status === 'ready'
+  const onlineNow = useMemo(() => {
+    if (!userId || !online.ready) return []
+    const rows = [...asA.records, ...asB.records].map((r) => r.data)
+    return onlinePastOpponents(rows, userId, online.isOnline)
+      .map((id) => ({ id, username: dir.nameOf(id) }))
+      .filter((u): u is { id: string; username: string } => !!u.username)
+  }, [asA.records, asB.records, userId, online, dir])
+  const mode = getMode(modeId)
+  const opponentOffline = !!exact && !isSelf && online.ready && !online.isOnline(exact)
+  const rapidOfflineWarning = !!mode && mode.id.startsWith('rapid') && opponentOffline
   // Every pickable mode costs 1 energy to send (D66); the server has the final say.
   const energy = useEnergy()
   const outOfEnergy = energy.ready && energy.energy < 1 && getMode(modeId)?.energy !== false
@@ -122,6 +142,38 @@ export default function ChallengePage() {
           </div>
         </fieldset>
 
+        <div data-testid="online-now">
+          <p className="mb-2 flex items-center gap-2 text-sm font-semibold">
+            <OnlineDot /> Online now
+          </p>
+          {onlineNow.length > 0 ? (
+            <ul className="flex flex-wrap gap-2" aria-label="Online now">
+              {onlineNow.map((u) => (
+                <li key={u.id}>
+                  <button
+                    type="button"
+                    data-testid="online-opponent"
+                    aria-pressed={query === u.username}
+                    onClick={() => setOpponent(u.username)}
+                    className={cn(
+                      'flex min-h-11 items-center gap-2 rounded-full border bg-card px-4 text-sm font-semibold hover:bg-accent',
+                      query === u.username ? 'border-primary' : 'border-border',
+                    )}
+                  >
+                    <OnlineDot />@{u.username}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground" data-testid="online-none">
+              {!online.ready || !historyReady || !dir.ready
+                ? 'Checking who\u2019s online…'
+                : 'None of your past opponents are online. Search by username.'}
+            </p>
+          )}
+        </div>
+
         <div>
           <label htmlFor="opponent" className="mb-2 block text-sm font-semibold">
             Opponent
@@ -143,7 +195,25 @@ export default function ChallengePage() {
             <p className="mt-2 text-sm text-muted-foreground">No player called @{query}.</p>
           )}
           {isSelf && <p className="mt-2 text-sm text-destructive">You can't challenge yourself.</p>}
-          {exact && !isSelf && <p className="mt-2 text-sm text-primary">@{query} found.</p>}
+          {exact && !isSelf && (
+            <p className="mt-2 flex items-center gap-2 text-sm text-primary" data-testid="opponent-found">
+              @{query} found.
+              {online.isOnline(exact) && (
+                <span className="flex items-center gap-1.5 text-muted-foreground">
+                  <OnlineDot /> Online
+                </span>
+              )}
+            </p>
+          )}
+          {rapidOfflineWarning && (
+            <p
+              role="status"
+              data-testid="rapid-offline-warning"
+              className="mt-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm font-medium text-foreground"
+            >
+              @{query} is offline. They have {fmt(mode!.inviteWindowMs).replace(' min', ' minutes')} to accept.
+            </p>
+          )}
           {suggestions.length > 0 && (
             <ul className="mt-2 overflow-hidden rounded-lg border border-border bg-card" role="listbox" aria-label="Matching players">
               {suggestions.map((u) => (
@@ -153,9 +223,11 @@ export default function ChallengePage() {
                     role="option"
                     aria-selected={false}
                     onClick={() => setOpponent(u.username)}
-                    className="w-full px-3 py-2.5 text-left text-sm hover:bg-accent"
+                    data-testid="suggestion"
+                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-accent"
                   >
                     @{u.username}
+                    {online.isOnline(u.userId) && <OnlineDot />}
                   </button>
                 </li>
               ))}

@@ -756,3 +756,55 @@ test('energy: at 0 the challenge button is disabled and the server refuses', asy
 
   await setEnergy(a.page, 5)
 })
+
+// Online presence in the opponent picker (D67).
+test('online now: a past opponent shows while their app is open and leaves when they close it', async ({ users }) => {
+  test.setTimeout(120_000)
+  const [a, b] = await users(['Player A', 'Player B'])
+  await ensureUsername(a.page, a.email)
+  const nameB = await ensureUsername(b.page, b.email)
+  await setEnergy(a.page, 5)
+
+  // Make sure A has battled B (any status counts): challenge, then cancel.
+  const battleUrl = await sendChallenge(a.page, nameB, uniqueSkill('Presence'))
+  const cancelled = await callAction(a.page, 'cancelChallenge', { battleId: battleUrl.split('/').pop()! })
+  expect(cancelled.success, cancelled.error).toBe(true)
+
+  // B has the app open.
+  await b.page.goto('/home')
+  await expect(b.page.getByTestId('new-challenge')).toBeVisible({ timeout: 20_000 })
+
+  // A sees B under "Online now" and tapping fills in the opponent.
+  await a.page.goto('/challenge?test=1')
+  const onlineNow = a.page.getByTestId('online-now')
+  const chipB = onlineNow.getByTestId('online-opponent').filter({ hasText: `@${nameB}` })
+  await expect(chipB).toBeVisible({ timeout: 20_000 })
+  expect(await onlineNow.getByTestId('online-opponent').count()).toBeLessThanOrEqual(8)
+  await chipB.click()
+  await expect(a.page.getByLabel('Opponent')).toHaveValue(nameB)
+  await expect(a.page.getByTestId('opponent-found').getByTestId('online-dot')).toBeVisible()
+
+  // Search results carry the green dot for B.
+  await a.page.getByLabel('Opponent').fill(nameB.slice(0, -1))
+  const suggestion = a.page.getByTestId('suggestion').filter({ hasText: new RegExp(`^@${nameB}$`) })
+  await expect(suggestion).toBeVisible()
+  await expect(suggestion.getByTestId('online-dot')).toBeVisible()
+
+  // Rapid Fire with B online: no warning.
+  await a.page.getByTestId('mode-rapid_test').click()
+  await a.page.getByLabel('Opponent').fill(nameB)
+  await expect(a.page.getByTestId('opponent-found')).toBeVisible()
+  await expect(a.page.getByTestId('rapid-offline-warning')).toHaveCount(0)
+
+  // B closes the app: B leaves "Online now", the dot goes, Rapid Fire warns softly.
+  await b.page.close()
+  await expect(chipB).toHaveCount(0, { timeout: 15_000 })
+  await expect(a.page.getByTestId('opponent-found').getByTestId('online-dot')).toHaveCount(0)
+  await expect(a.page.getByTestId('rapid-offline-warning')).toHaveText(`@${nameB} is offline. They have 5 minutes to accept.`)
+  // A warning, not a block: the form still sends once the rest is filled in.
+  await a.page.getByLabel('Skill', { exact: true }).fill('Presence check')
+  await a.page.getByTestId('challenge-form').getByTestId('video-input').setInputFiles(CLIP)
+  await expect(a.page.getByTestId('send-challenge')).toBeEnabled()
+  // No "last seen" anywhere on the form.
+  await expect(a.page.getByTestId('challenge-form')).not.toContainText(/last seen/i)
+})

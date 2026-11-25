@@ -10,6 +10,13 @@ This document is the source of truth for SkillClash game behavior. If code and t
 - The battle starts only when B accepts.
 - Two players can have only one open (invited or active) battle with each other **per mode** at a time, in either direction: one open Standard battle and one open Rapid Fire battle at once is fine, two open battles of the same mode is not ("You already have an open [mode] battle with @username.").
 
+### Picking an opponent
+
+- The challenge form shows "Online now": players you've battled before (any mode, any outcome) whose app is open right now, most recent opponent first, at most 8. Tap one to pick them. Nobody else's online status is listed.
+- Username search marks online players with a green dot.
+- Only online/offline is shown, never when someone was last seen.
+- Rapid Fire to an offline player is allowed, with a warning that they have 5 minutes to accept.
+
 ### Cancelling an invite
 
 - While the invite is unanswered, Player A (and only Player A) can cancel it. The battle becomes **cancelled**; B sees it as cancelled and can no longer accept it.

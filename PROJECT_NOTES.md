@@ -8,15 +8,16 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 ## Current status
 - MVP is built and deployed: state machine, schemas and server actions, cron sweep (confirmed running in prod logs), files guard, full arena-themed UI, two emails (challenge, battle result).
 - **Set-and-match rules (D53, D54):** setters film first in rounds 1–2 (A with the challenge, B with the accept); blind invite; unrevealed skills live on hidden setter submission rows, not the public battle state. Old active battles finish under the old rules; old open invites can't be accepted.
-- `npx deepspace test run all --port 5181`: 15/15 pass (143 unit tests), including an energy spec at 375px,, including a short Rapid Fire battle, including `tests/battle.spec.ts` (3-user set-and-match battle with network-level leak checks and feed reel swipe/arrow/vote checks, ~1.6 min, plus a 375px layout check; and a cancel-invite test that re-challenges the pair). 
+- `npx deepspace test run all --port 5181`: 16/16 pass (149 unit tests), including an online-presence test (D67), including an energy spec at 375px,, including a short Rapid Fire battle, including `tests/battle.spec.ts` (3-user set-and-match battle with network-level leak checks and feed reel swipe/arrow/vote checks, ~1.6 min, plus a 375px layout check; and a cancel-invite test that re-challenges the pair). 
 - Test accounts (by name in the spec): "Player A" = fi-skillclash-a@deepspace.test, "Player B" = fi-skillclash-b@deepspace.test, "Voter C" = voter-c@deepspace.test (stored in `~/.deepspace/test-accounts.json`).
 - Demo battle route is deployed but the live demo is **not seeded** (secret `DEMO_SEED_TOKEN` not set yet; see Next steps).
 - Email delivery not yet confirmed in production logs (no real battle finished on prod). Test-mode battles send no email (D48).
 - **Latest deploy: cbdb5a5 (2026-11-25), pushed to main**, live bundle verified: energy bar (D66). Earlier: cab6276 (Rapid Fire, D63–D65), 1b4ff7f (Voting now heading jump), 294c7bc (window scrolling, camera inputs), 8349507, 045ced7, af741ed, dcaf8e9.
 - **Not yet checked by a person:** everything in Next steps marked "On a phone", the D55 fix on a fully reloaded tab, and video playback in desktop Chrome (D43).
-- Decisions D1–D66 in `docs/DECISIONS.md`.
+- Decisions D1–D67 in `docs/DECISIONS.md`.
 
 ## Recent changes
+- 2026-11-25: Online presence (D67): app-wide `usePresenceRoom('online')` (`src/components/game/presence.tsx`); challenge form shows "Online now" (past opponents online, most recent first, max 8, `src/battle/opponents.ts`), green dots in search, Rapid Fire offline warning (soft).
 - 2026-11-25: Energy (D66): max 5, challenge costs 1 (not demo), refund on decline/cancel/expire, +1 to the winner, +1 every 5h below 5 computed on read. `energy_entries` ledger (uniqueOn key) + public `player_energy`; bar in the home hero and challenge form; disabled "Next energy in …" at 0. Dev-only `devSetMyEnergy` action for specs.
 - 2026-11-25: Rapid Fire mode (D63): 1 round, 5 min invite, 5 min to match, 15 min vote, no bonus; rounds/windows/bonus are mode config. Pair rule is per mode (D64). Owner-only seeded demo battle (D65, `scripts/seed-demo.sh`). Mode badge on cards and battle page.
 - 2026-11-25: Phone layout (D59, D60): "Voting now" cards are one screen tall (`h-dvh` shell, `main` is a size container, list `h-[100cqh]`), the list snaps vertically on its own, the video track snaps one slide per swipe, and the video shrinks to fit at 9:16. `ScrollManager` resets `<main>` to the top on new navigations, sign-in and keyboard close, and restores it on back/forward. Hero copy: "Twenty-second clips".
@@ -48,10 +49,12 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - **Energy (D66):** never write `player_energy` directly; write an `energy_entries` row then `recountEnergy` (`src/battle/energy.ts`). Refund/win keys are `refund:<battleId>` / `win:<battleId>`; any new end-of-battle path must call `settleBattleEnergy`.
 - **Demo battle (D65):** to (re)seed the live demo battle: `scripts/seed-demo.sh` (reads the token from `~/.deepspace/skillclash-demo-token`; `APP_URL=http://localhost:5180` for local). It refuses with 409 while a demo battle is still open (voting lasts 7 days); run it again once that one has closed. To rotate the token: write a new one (24+ chars) to that file and `npx deepspace secrets set DEMO_SEED_TOKEN --stdin < ~/.deepspace/skillclash-demo-token`. Without the secret the route is a 404.
 - **Invites:** cancel (challenger only) and expiry (`inviteExpiresAt` in state; `inviteDeadline()` falls back to createdAt + window for old rows) both free the pair rule. No emails for either (D50, D51).
+- **Presence (D67):** use `useOnline()` from `src/components/game/presence.tsx` (SDK presence room). Don't use `usePresence`: in SDK 0.44.2 its roster never refreshes `lastSeenAt` for other tabs. Never list everyone online and never show last-seen times.
 - **Usernames:** every signed-in user must pick one (UsernameGate in `src/components/game/usernames.tsx`). Profiles live at `/u/<username>`.
 - Out of scope for MVP: Stripe, followers, DMs, tournaments, rankings.
 
 ## Next steps
+- [ ] On two phones: online presence in the challenge form (D67), see the latest session's checklist.
 - [ ] On a phone: energy bar in the home hero at 5/5 (hero no taller), send a challenge → 4/5 + "Next refill in 4h 59m", cancel → 5/5 live; decline as B refunds A; win → +1; at 0 the button reads "Next energy in …" and the form shows the out-of-energy line (D66).
 - [ ] **Seed the live demo battle (not done yet):** the agent's shell wasn't allowed to set secrets. Run `npx deepspace secrets set DEMO_SEED_TOKEN --stdin < ~/.deepspace/skillclash-demo-token`, then `scripts/seed-demo.sh` (expect HTTP 200 with a battleId). If the route still 404s right after setting the secret, redeploy.
 - [ ] On two phones: play a Rapid Fire battle (see D63).

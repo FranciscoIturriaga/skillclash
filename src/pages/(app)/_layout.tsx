@@ -26,6 +26,7 @@ import { useToast } from '@/components/ui'
 import { APP_NAME, SCOPE_ID } from '../../constants'
 import { schemas } from '../../schemas'
 import { UsernamesProvider, UsernameGate } from '../../components/game/usernames'
+import { OnlineProvider } from '../../components/game/presence'
 
 export default function AppLayout() {
   return (
@@ -112,7 +113,10 @@ function AuthBoot({ children }: { children: ReactNode }) {
       <RecordScope roomId={SCOPE_ID} schemas={schemas}>
         <AgentTools />
         {/* Username directory for the whole app; the gate asks a new player to pick one. */}
-        <UsernamesProvider>{children}</UsernamesProvider>
+        <UsernamesProvider>
+          {/* Online status for the challenge form's opponent picker (D67). */}
+          <OnlineProvider>{children}</OnlineProvider>
+        </UsernamesProvider>
       </RecordScope>
     </RecordProvider>
   )
