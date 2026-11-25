@@ -156,3 +156,58 @@ Decisions made during setup without the product owner present. Each entry record
 - **Why:** The two-user Playwright test has to play a round, vote, and see results within a test timeout. 3 minutes leaves room for uploading; 20 s of voting keeps the test short.
 - **Alternatives:** Allow it only in dev builds. Rejected because the e2e test may run against a deployed build later.
 - **No invite expiry:** an unanswered challenge stays `invited` forever. GAME_RULES has no rule for it; out of MVP scope.
+
+### Phase 2: data, permissions, server actions
+
+#### D23. Usernames live in their own public `usernames` collection
+
+- **Decided:** `usernames` (record id = user id, `uniqueOn: ['username']`, public read, no client writes) is the source of truth for names. `users.username` is a private mirror written by the same `setUsername` action.
+- **Why:** The `users` collection reads `'own'` and contains email, so it can't be made public for opponent search. A separate table gives a database-enforced unique name that anyone can look up without exposing user rows.
+- **Alternatives:** Make `users` publicly readable (leaks email), or search through a server action over `users` (more code, still needs a uniqueness guard).
+- **Names can change:** `setUsername` upserts the same row, and battles store user ids, so a rename just changes what's displayed.
+
+#### D24. Transition conflicts: re-validate up to 3 times, then report
+
+- **Decided:** `runAction` re-reads the battle and re-runs the machine after a lost claim (another write took that version). After 3 lost claims it returns `conflict` ("This battle is busy right now. Try again."). An action that's no longer valid after the re-read (e.g. a second accept) gets the machine's normal error.
+- **Alternatives:** Fail on the first conflict (worse UX when the cron sweep and a player collide).
+
+#### D25. Half-finished transitions are repaired from the claim row
+
+- **Decided:** A transition is "claim row in `battle_transitions` (holds `toState`), then write the battle". If the write fails after the claim, the next action or sweep finds a claim for the battle's current version and writes its `toState`.
+- **Why:** Without compare-and-set there's no atomic multi-row write; this makes the claim the commit point. Replaying is idempotent and only happens when the battle is still at the claimed version, so it never moves a battle backwards.
+- **Known gap:** The cron sweep only looks at `active` battles, so a stuck accept/decline (still `invited`) is repaired on the next action that touches it, not by cron.
+
+#### D26. Submissions: write the hidden row first, then commit the transition
+
+- **Decided:** `submitVideo` dry-runs the machine, upserts the submission (`revealed: 'no'`, id `<battle>_r<n>_<side>`), then commits. Reveal only flips sides the state machine counted as submitted.
+- **Why:** If the commit loses or fails, the row stays hidden forever instead of leaking. The dry run stops a refused second upload from overwriting an accepted one.
+
+#### D27. Votes are tallied 3 s after the voting deadline
+
+- **Decided:** `closeVoting` is applied only once `now >= voteDeadline + 3s`. `castVote` refuses at `now >= voteDeadline`.
+- **Why:** A vote accepted a millisecond before the deadline may still be in flight when the deadline passes; the grace keeps it from being missed by the tally.
+
+#### D28. Live total vote count is recounted on every vote
+
+- **Decided:** After a successful vote, `castVote` counts that round's votes and writes `rounds.totalVotes` (public). Per-side counts are never stored anywhere public until `closeVoting` puts them into the battle state.
+- **Why:** A recount heals itself if two votes race (last writer still writes a correct count, or the next vote fixes it). An increment would need compare-and-set.
+
+#### D29. The files proxy guards public-with-link (`scope=app`) files
+
+- **Decided:** `src/server/files-guard.ts` runs inside the app's `/api/files/*` proxy. For non-owners on `scope=app`: single-file GET is allowed (the public link), listing is refused, uploads must use `videos/<caller id>/<16–64 random chars>.<ext>`, multipart continuation is allowed, deletes are refused. `submitVideo` checks the key has the same shape for the caller.
+- **Why:** The secret in D14 is the file key. Without this guard anyone could list app files and find unrevealed videos, delete an opponent's video, or point a submission at someone else's file.
+
+#### D30. Profile stats are computed, not stored
+
+- **Decided:** Battles played, W/L/T, round wins and total points are computed on the client from the player's completed battles (`state.result` already holds per-side totals).
+- **Why:** No counters to keep in sync, no extra write per battle end, and a rules change recomputes history. Fine at MVP scale (a player has tens of battles, not thousands).
+
+#### D31. Who can read what
+
+- **Decided:** Anyone, signed in or not, can read `battles`, `rounds` and `usernames` (they hold nothing secret). `submissions` are readable by the uploader, and by everyone once revealed; admins get no exception. `votes` read `'own'`. `battle_transitions` is admin-only. No role can write any game collection from a client.
+- **Why:** Battles in voting are meant to be watched and shared. The admin exception was removed so that "hidden until reveal" holds for everyone, including the app owner's own account.
+- **Left as scaffold:** members can still update their own `users` row (display name, etc.). That row has no game data.
+
+#### D32. Test accounts not created by the agent
+
+- **Decided:** Creating the three `@deepspace.test` accounts for the multi-user test was blocked by the session's permission rules, so the owner has to create them (commands in PROJECT_NOTES.md). The spec skips itself when fewer than 3 usable accounts exist.

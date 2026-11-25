@@ -30,6 +30,7 @@ import {
 } from 'deepspace/worker'
 import type { ExpoAuthBridgeOptions, JwtVerifierConfig, VerifyResult } from 'deepspace/worker'
 import { integrations } from '../integrations.js'
+import { guardAppFiles } from './files-guard.js'
 import type { AppContext, Env } from '../../worker.js'
 
 function jwtConfig(env: Env): JwtVerifierConfig {
@@ -297,6 +298,17 @@ export function registerPlatformProxyRoutes(app: Hono<AppContext>): void {
     const userId = auth?.userId ?? null
 
     const url = new URL(c.req.url)
+    // SkillClash: lock down public-with-link (scope=app) files. See files-guard.ts.
+    const guard = guardAppFiles({
+      method: c.req.method,
+      subPath: url.pathname.replace(/^\/api\/files/, ''),
+      scope: url.searchParams.get('scope'),
+      key: url.searchParams.get('key'),
+      userId,
+      ownerId: c.env.OWNER_USER_ID,
+    })
+    if (!guard.ok) return c.json({ success: false, error: guard.error }, guard.status)
+
     const platformUrl = new URL(c.req.url)
     platformUrl.pathname = url.pathname.replace('/api/files', '/internal/files')
 
