@@ -11,7 +11,7 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - `npx deepspace test run all --port 5181`: 13/13 pass, including `tests/battle.spec.ts` (3-user set-and-match battle with network-level leak checks, ~1.6 min, plus a 375px layout check; and a cancel-invite test that re-challenges the pair). 85 vitest unit tests pass.
 - Test accounts (by name in the spec): "Player A" = fi-skillclash-a@deepspace.test, "Player B" = fi-skillclash-b@deepspace.test, "Voter C" = voter-c@deepspace.test (stored in `~/.deepspace/test-accounts.json`).
 - Email delivery not yet confirmed in production logs (no real battle finished on prod). Test-mode battles send no email (D48).
-- Cancel/expiry and the past-round UI went live at 055247f. Set-and-match rules: see Recent changes for the deploy.
+- Cancel/expiry and the past-round UI went live at 055247f. Set-and-match rules deployed and pushed at b3323c1 (2026-11-25); prod sweep logs `active=2 invited=0 ... failed=0`. Working tree clean.
 - **Not yet checked by a person:** the set-and-match flow on a real phone (record in the challenge form and accept panel, "Match this"), the earlier phone checks (expanded rounds, Expires in, Cancel flow), and video playback in desktop Chrome (D43).
 - Decisions D1–D54 in `docs/DECISIONS.md`.
 
