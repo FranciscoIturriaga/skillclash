@@ -25,3 +25,10 @@ export async function callAction<T = unknown>(
     return { success: false, error: e instanceof Error ? e.message : 'Network error.' }
   }
 }
+
+// Dev-server only: lets the Playwright spec call an action as the signed-in
+// browser user (e.g. to prove a competitor's vote is refused by the server,
+// which the UI never offers). It carries the same token the UI already uses.
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  ;(window as unknown as { __callAction?: typeof callAction }).__callAction = callAction
+}

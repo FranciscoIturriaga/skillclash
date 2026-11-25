@@ -258,3 +258,12 @@ Decisions made during setup without the product owner present. Each entry record
 - **Privacy:** recipient emails are read server-side from `users` and never returned to clients or logged (logs carry only battle id and side).
 - **Not verified live yet:** no real email has been sent, because the two-user flow needs test accounts (D32). After the owner plays a battle, `npx deepspace logs --search email` shows `[email] ... sent id=...` or the failure.
 - **Alternatives:** an email per round (noisy, more cost); a digest via cron (more moving parts).
+
+## Phase 5: tests and verification
+
+### D41. One 3-user spec plays a whole battle
+- **What:** `tests/battle.spec.ts` uses `users(3)`. A challenges B in test mode, B accepts, both upload `tests/fixtures/clip.webm` (2 s, 9 KB) each round, C votes in round 1, then a duplicate vote and a competitor vote are both refused, round 1's result appears after voting closes, rounds 2–3 end as 0–0 ties, and the final score must be 30:10.
+- **Why WebM:** Playwright's Chromium has no H.264 decoder, so an MP4 would fail the client's duration check.
+- **Why a dev-only `window.__callAction`:** the UI never shows a vote button to a competitor or a second vote button, so the only way to prove the *server* refuses those votes is to call the action as that user. It is only defined under `import.meta.env.DEV`, and it carries the same token the UI uses, so it grants nothing new.
+- **Status:** skips until 3 test accounts exist on this machine (D32).
+- **Alternatives:** a raw `request` call with a token taken from storage state (couples the spec to the auth implementation).
