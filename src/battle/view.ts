@@ -127,7 +127,8 @@ export function runningScore(state: BattleState): { a: number; b: number } {
 
 export function roundLabel(r: RoundState): string {
   if (r.number === 3) return 'Freestyle'
-  return r.skill ?? 'Skill TBD'
+  // Under the setter rules a skill stays hidden until its round opens (D53).
+  return r.skill ?? 'Skill hidden'
 }
 
 export interface ProfileStats {

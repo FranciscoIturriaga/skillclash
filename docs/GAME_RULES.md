@@ -4,8 +4,10 @@ This document is the source of truth for SkillClash game behavior. If code and t
 
 ## Battles
 
-- Player A challenges Player B by username and picks a mode.
-- B accepts or declines. The battle starts only when B accepts.
+- Player A challenges Player B by username and picks a mode. To send the challenge, A names round 1's skill AND records or uploads a video of it (same limits as every video: 20 s, 50 MB).
+- **Blind invite:** B sees only "@A challenged you", the mode and when the invite expires. B can't see round 1's skill or A's video before accepting.
+- B accepts or declines. To accept, B names round 2's skill (it must differ from round 1's; checked on the server) AND records or uploads a video of it. A can't see round 2's skill or B's video until round 2 opens.
+- The battle starts only when B accepts.
 - Two players can have only one open (invited or active) battle with each other at a time, in either direction.
 
 ### Cancelling an invite
@@ -28,17 +30,28 @@ This document is the source of truth for SkillClash game behavior. If code and t
 
 A battle has 3 rounds, and all 3 are always played.
 
-| Round | Who picks the skill                         |
-| ----- | ------------------------------------------- |
-| 1     | Player A names the skill.                   |
-| 2     | Player B names a different skill.           |
-| 3     | Freestyle: each player picks their own skill. |
+| Round | Setter (names and films the skill first)        | Replicator |
+| ----- | ----------------------------------------------- | ---------- |
+| 1     | Player A, when sending the challenge.           | Player B   |
+| 2     | Player B, when accepting (a different skill).   | Player A   |
+| 3     | Freestyle: no setter; each player picks their own skill. | — |
 
-### Submission window
+### Rounds 1 and 2: set and match
 
-- In every round, both players submit a video before ONE shared submission deadline.
+- The round opens with the setter's skill and video revealed to everyone. Round 1 opens when B accepts; round 2 opens when round 1 closes.
+- The setter's video counts as the setter's submission for that round.
+- The replicator has the submission window to film their attempt. As soon as they submit, the submission window ends and voting opens.
+- If the replicator misses the deadline, the setter wins the round automatically (+10). No vote is held.
+
+### Round 3: freestyle (blind)
+
+- Both players submit a video before ONE shared submission deadline, each naming their own skill.
 - Videos stay hidden from everyone, including the opponent, until the submission window ends.
 - The submission window ends when both videos are submitted OR the deadline passes, whichever comes first.
+
+### Hiding is enforced on the server
+
+- An unrevealed skill name or video never reaches the other player or voters: not in the page, the network traffic or record subscriptions. The setter always sees their own skill and video.
 
 ### Voting window
 
@@ -74,8 +87,13 @@ A hidden Test mode (automated tests only) uses a 5-minute invite window, 3-minut
 
 ### Missed deadlines
 
-- If one player misses the submission deadline, the player who submitted wins the round automatically (+10). No vote is held.
-- If both players miss, the round is a tie worth 0 points for both.
+- If one player misses the submission deadline, the player who submitted wins the round automatically (+10). No vote is held. (In rounds 1 and 2 the setter has always submitted, so only the replicator can miss.)
+- If both players miss round 3, the round is a tie worth 0 points for both.
+
+### Battles from before the set-and-match rules
+
+- Battles already active when these rules shipped finish under the old rules (round 1 and 2 skills public, both players film blind in every round).
+- An old-rules invite still open can't be accepted; B can decline it or A can cancel it.
 
 ### Battle bonus
 

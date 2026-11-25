@@ -6,7 +6,10 @@
  *   rounds      → live total vote count per round (per-side counts stay hidden
  *                 until the state machine records the outcome at vote close)
  *   submissions → only rows the server lets this viewer read: their own, plus
- *                 every revealed one (DECISIONS D8/D26)
+ *                 every revealed one (DECISIONS D8/D26). Under the setter
+ *                 rules (D53) the round 1/2 skill names and setter videos
+ *                 live here too, so an unopened round's skill never reaches
+ *                 anyone but its setter.
  * Writes go through server actions (accept, decline, submitVideo, castVote).
  */
 
@@ -15,13 +18,13 @@ import { Link, useParams } from 'react-router-dom'
 import { AuthOverlay, useAuth, useQuery } from 'deepspace'
 import { Check, ChevronDown, Clock, EyeOff, Lock, Trophy, Vote, X } from 'lucide-react'
 import { Button, EmptyState, Input, cn, useToast } from '@/components/ui'
-import { currentRoundState, inviteDeadline, roundPoints, sideOf, type BattleState, type RoundState, type Side } from '../../../battle/machine'
+import { currentRoundState, inviteDeadline, roundPoints, setterOf, sideOf, usesSetterRules, type BattleState, type RoundState, type Side } from '../../../battle/machine'
 import { getMode } from '../../../battle/modes'
 import { roundDisplayOrder, runningScore, statusLabel, type BattleRowData, type SubmissionData } from '../../../battle/view'
 import { callAction } from '../../../lib/api'
 import { Countdown, ExpiresIn, LiveDot, Panel, PlayerTag, sideBorder, sideText } from '../../../components/game/bits'
 import { CancelChallenge } from '../../../components/game/CancelChallenge'
-import { VideoPlayer, VideoUploader } from '../../../components/game/VideoUploader'
+import { VideoPicker, VideoPlayer, VideoUploader, useVideoUpload, type PickedVideo } from '../../../components/game/VideoUploader'
 import { useUsernames } from '../../../components/game/usernames'
 
 interface RoundRow {
@@ -72,7 +75,7 @@ export default function BattlePage() {
       <MatchHeader state={state} viewerId={userId} />
 
       {state.status === 'invited' && (
-        <InvitePanel battleId={id} state={state} mySide={mySide} canWrite={canWrite} onExpire={() => sync(1500)} />
+        <InvitePanel battleId={id} state={state} mySide={mySide} mySetterSub={subs.get('1_a')} canWrite={canWrite} onExpire={() => sync(1500)} />
       )}
       {state.status === 'declined' && (
         <Panel className="p-5 text-center text-muted-foreground">
@@ -166,34 +169,53 @@ function InvitePanel({
   battleId,
   state,
   mySide,
+  mySetterSub,
   canWrite,
   onExpire,
 }: {
   battleId: string
   state: BattleState
   mySide: Side | null
+  /** A's own hidden round 1 row (only A can read it before accept). */
+  mySetterSub?: SubmissionData
   canWrite: boolean
   onExpire: () => void
 }) {
   const toast = useToast()
+  const { nameOf } = useUsernames()
   const [skill, setSkill] = useState('')
+  const [video, setVideo] = useState<PickedVideo | null>(null)
+  const { uploadVideo, progress, done } = useVideoUpload()
   const [busy, setBusy] = useState<'accept' | 'decline' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const expiresAt = inviteDeadline(state)
+  const legacy = !usesSetterRules(state)
+  const modeLabel = getMode(state.modeId)?.label ?? state.modeId
 
   if (mySide !== 'b') {
+    // The skill is shown only to its setter: legacy battles kept it in the
+    // state; under the setter rules it comes from A's own hidden row.
+    const ownSkill = mySide === 'a' ? (legacy ? state.rounds[0].skill : mySetterSub?.skill) : null
     return (
-      <Panel className="space-y-4 p-5 text-sm text-muted-foreground">
+      <Panel className="space-y-4 p-5 text-sm text-muted-foreground" data-testid="invite-waiting">
         <div className="flex items-start gap-3">
           <Clock className="mt-0.5 size-5 shrink-0" aria-hidden />
           <div className="min-w-0 space-y-1">
             <p>
-              Waiting for <PlayerTag userId={state.playerB} side="b" /> to accept. Round 1:{' '}
-              <span className="font-semibold text-foreground">{state.rounds[0].skill}</span>
+              Waiting for <PlayerTag userId={state.playerB} side="b" /> to accept.
+              {ownSkill && (
+                <>
+                  {' '}Your round 1 skill: <span className="font-semibold text-foreground" data-testid="own-round-1-skill">{ownSkill}</span>
+                  {!legacy && ' (hidden from them until they accept)'}
+                </>
+              )}
             </p>
             <ExpiresIn at={expiresAt} onExpire={onExpire} className="text-xs" />
           </div>
         </div>
+        {mySide === 'a' && !legacy && mySetterSub?.fileKey && (
+          <VideoPlayer fileKey={mySetterSub.fileKey} label="Your round 1 skill video" />
+        )}
         {mySide === 'a' && <CancelChallenge battleId={battleId} disabled={!canWrite} />}
       </Panel>
     )
@@ -202,12 +224,19 @@ function InvitePanel({
   async function accept(e: FormEvent) {
     e.preventDefault()
     if (!skill.trim()) return setError('Name the round 2 skill to accept.')
+    if (!video) return setError('Record your round 2 skill to accept.')
     setBusy('accept')
     setError(null)
-    const r = await callAction('acceptChallenge', { battleId, round2Skill: skill.trim() })
+    const up = await uploadVideo(video)
+    if (!up.ok) {
+      setBusy(null)
+      return setError(up.error)
+    }
+    const r = await callAction('acceptChallenge', { battleId, round2Skill: skill.trim(), ...up.video })
+    done()
     setBusy(null)
     if (!r.success) return setError(r.error)
-    toast.success('Challenge accepted', 'Round 1 is live. Film your attempt.')
+    toast.success('Challenge accepted', 'Round 1 is live. Watch their skill and match it.')
   }
 
   async function decline() {
@@ -222,20 +251,39 @@ function InvitePanel({
     <Panel className="border-primary/60 p-5" >
       <form onSubmit={accept} data-testid="invite-panel" className="space-y-4">
         <div>
-          <p className="font-display text-2xl font-extrabold uppercase italic">You've been challenged</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Round 1 skill: <span className="font-semibold text-foreground">{state.rounds[0].skill}</span>. Accept by picking round 2's skill.
+          <p className="font-display text-2xl font-extrabold uppercase italic" data-testid="invite-headline">
+            @{nameOf(state.playerA) ?? 'someone'} challenged you
           </p>
+          <p className="mt-1 text-sm text-muted-foreground">{modeLabel} mode. Their skill stays hidden until you accept.</p>
           <ExpiresIn at={expiresAt} onExpire={onExpire} className="mt-1 text-xs text-muted-foreground" />
         </div>
-        <Input
-          aria-label="Round 2 skill"
-          placeholder="Round 2 skill (your pick)"
-          value={skill}
-          maxLength={60}
-          onChange={(e) => setSkill(e.target.value)}
-          className="h-12 bg-background"
-        />
+        {legacy ? (
+          <p className="text-sm text-muted-foreground" data-testid="legacy-invite">
+            This challenge was sent under the old rules and can't be accepted any more. Decline it and send a new one.
+          </p>
+        ) : (
+          <>
+            <div>
+              <label htmlFor="round2-skill" className="mb-2 block text-sm font-semibold">
+                You set round 2: name a skill
+              </label>
+              <Input
+                id="round2-skill"
+                aria-label="Round 2 skill"
+                placeholder="Round 2 skill (your pick)"
+                value={skill}
+                maxLength={60}
+                onChange={(e) => setSkill(e.target.value)}
+                className="h-12 bg-background"
+              />
+            </div>
+            <div>
+              <p className="mb-1 text-sm font-semibold">Show them the skill: record it now</p>
+              <p className="mb-2 text-sm text-muted-foreground">They have to match it in round 2. Hidden from them until round 2 opens.</p>
+              <VideoPicker value={video} onChange={setVideo} disabled={busy !== null} progress={progress} />
+            </div>
+          </>
+        )}
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}
@@ -245,8 +293,8 @@ function InvitePanel({
           <Button type="button" variant="outline" size="lg" onClick={decline} loading={busy === 'decline'} disabled={!canWrite || busy !== null} data-testid="decline-challenge">
             Decline
           </Button>
-          <Button type="submit" size="lg" className="font-semibold" loading={busy === 'accept'} disabled={!canWrite || busy !== null} data-testid="accept-challenge">
-            Accept
+          <Button type="submit" size="lg" className="font-semibold" loading={busy === 'accept'} disabled={!canWrite || busy !== null || legacy} data-testid="accept-challenge">
+            {progress !== null ? `Uploading ${progress}%` : 'Accept'}
           </Button>
         </div>
       </form>
@@ -290,14 +338,20 @@ function RoundPanel({
   onDeadline: (delayMs: number) => void
 }) {
   const isCurrent = state.currentRound === round.number && state.status === 'active'
+  const setter = setterOf(state, round.number)
+  const setterSub = setter === 'a' ? subA : setter === 'b' ? subB : undefined
+  // Before a round opens only its setter can read their own row, so this
+  // shows the skill to the setter and "hidden" to everyone else (D53).
   const skillLine =
-    round.number === 3 ? 'Freestyle: each player picks their own skill' : round.skill ?? 'Picked when the challenge is accepted'
+    round.number === 3
+      ? 'Freestyle: each player picks their own skill'
+      : round.skill ?? setterSub?.skill ?? (setter ? 'Skill hidden until this round opens' : 'Picked when the challenge is accepted')
 
   const header = (
         <div className={cn('flex items-start justify-between gap-3 px-5 py-4', !collapsible && 'border-b border-border')}>
           <div className="min-w-0">
             <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-muted-foreground">Round {round.number}</p>
-            <p className="mt-0.5 break-words font-semibold">{skillLine}</p>
+            <p className="mt-0.5 break-words font-semibold" data-testid={`round-${round.number}-skill`}>{skillLine}</p>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
             <span
@@ -325,12 +379,29 @@ function RoundPanel({
   const body = (
         <div className="p-5">
           {round.phase === 'pending' && (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Lock className="size-4" aria-hidden /> Unlocks when round {round.number - 1} ends.
-            </p>
+            <div className="space-y-3">
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Lock className="size-4" aria-hidden />{' '}
+                {round.number === 1 ? 'Opens when the challenge is accepted.' : `Unlocks when round ${round.number - 1} ends.`}
+              </p>
+              {setter && mySide === setter && setterSub?.fileKey && (
+                <div data-testid={`round-${round.number}-own-setter`}>
+                  <p className="mb-2 text-sm text-muted-foreground">Your skill video. Hidden from everyone until this round opens.</p>
+                  <VideoPlayer fileKey={setterSub.fileKey} label={`Your round ${round.number} skill video`} />
+                </div>
+              )}
+            </div>
           )}
           {round.phase === 'submit' && (
-            <SubmitPhase battleId={battleId} state={state} round={round} mySide={mySide} mySub={mySide === 'a' ? subA : mySide === 'b' ? subB : undefined} canWrite={canWrite} />
+            <SubmitPhase
+              battleId={battleId}
+              state={state}
+              round={round}
+              mySide={mySide}
+              mySub={mySide === 'a' ? subA : mySide === 'b' ? subB : undefined}
+              setterSub={setterSub}
+              canWrite={canWrite}
+            />
           )}
           {(round.phase === 'vote' || round.phase === 'closed') && (
             <RevealedRound
@@ -410,6 +481,7 @@ function SubmitPhase({
   round,
   mySide,
   mySub,
+  setterSub,
   canWrite,
 }: {
   battleId: string
@@ -417,8 +489,15 @@ function SubmitPhase({
   round: RoundState
   mySide: Side | null
   mySub?: SubmissionData
+  /** v2 rounds 1–2: the setter's video, public once the round is open. */
+  setterSub?: SubmissionData
   canWrite: boolean
 }) {
+  const { nameOf } = useUsernames()
+  const setter = setterOf(state, round.number)
+  const replicator: Side | null = setter ? (setter === 'a' ? 'b' : 'a') : null
+  const replicatorName = replicator ? nameOf(replicator === 'a' ? state.playerA : state.playerB) ?? 'opponent' : ''
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
@@ -438,10 +517,33 @@ function SubmitPhase({
         ))}
       </div>
 
-      {mySide && !round.submitted[mySide] && (
-        <VideoUploader battleId={battleId} round={round.number} needsSkill={round.number === 3} disabled={!canWrite} />
+      {setter && setterSub?.fileKey && mySide !== setter && (
+        <div className="rounded-xl border border-primary/40 bg-primary/5 p-3" data-testid="match-this">
+          <p className="font-display mb-2 text-sm font-bold uppercase tracking-[0.2em] text-primary">
+            {mySide ? 'Match this' : 'The skill to match'}
+          </p>
+          <VideoPlayer fileKey={setterSub.fileKey} label="Match this" />
+        </div>
       )}
-      {mySide && round.submitted[mySide] && (
+
+      {mySide && !round.submitted[mySide] && (
+        <VideoUploader
+          battleId={battleId}
+          round={round.number}
+          needsSkill={round.number === 3}
+          disabled={!canWrite}
+          hint={setter ? 'As soon as you submit, both videos go up and voting opens.' : undefined}
+        />
+      )}
+      {setter && mySide === setter && (
+        <div className="space-y-3" data-testid="setter-waiting">
+          <p className="flex items-center gap-2 rounded-xl bg-primary/10 px-3 py-2.5 text-sm font-medium text-primary">
+            <Clock className="size-4 shrink-0" aria-hidden /> You set this skill. Waiting for @{replicatorName} to match it.
+          </p>
+          {mySub && <VideoPlayer fileKey={mySub.fileKey} label="Your skill video" />}
+        </div>
+      )}
+      {!setter && mySide && round.submitted[mySide] && (
         <div className="space-y-3" data-testid="submitted-hidden">
           <p className="flex items-center gap-2 rounded-xl bg-primary/10 px-3 py-2.5 text-sm font-medium text-primary">
             <EyeOff className="size-4 shrink-0" aria-hidden /> Submitted. Hidden from everyone until the round ends.
@@ -450,7 +552,11 @@ function SubmitPhase({
         </div>
       )}
       {!mySide && (
-        <p className="text-sm text-muted-foreground">Both players are filming. Videos drop when the round's window ends, then voting opens.</p>
+        <p className="text-sm text-muted-foreground">
+          {setter
+            ? `Waiting for @${replicatorName} to match it. Voting opens as soon as they submit.`
+            : "Both players are filming. Videos drop when the round's window ends, then voting opens."}
+        </p>
       )}
     </div>
   )

@@ -1,6 +1,7 @@
 /**
- * Challenge flow: find an opponent by username, name the round 1 skill, pick a
- * mode, send. The opponent sees it under "Challenges for you" on their home.
+ * Challenge flow: find an opponent by username, name the round 1 skill, film
+ * it (D53), pick a mode, send. The skill and video stay hidden from the
+ * opponent until they accept. The opponent sees it under "Challenges for you" on their home.
  * The test mode only appears with ?test=1 (used by the Playwright spec).
  */
 
@@ -12,6 +13,7 @@ import { Button, Input, cn } from '@/components/ui'
 import { MODES } from '../../../battle/modes'
 import { callAction } from '../../../lib/api'
 import { useUsernames } from '../../../components/game/usernames'
+import { VideoPicker, useVideoUpload, type PickedVideo } from '../../../components/game/VideoUploader'
 
 export default function ChallengePage() {
   const { userId } = useAuth()
@@ -20,6 +22,8 @@ export default function ChallengePage() {
   const dir = useUsernames()
   const [opponent, setOpponent] = useState(params.get('to') ?? '')
   const [skill, setSkill] = useState('')
+  const [video, setVideo] = useState<PickedVideo | null>(null)
+  const { uploadVideo, progress, done } = useVideoUpload()
   const [modeId, setModeId] = useState<string>(params.get('test') === '1' ? 'test' : 'standard')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -36,14 +40,20 @@ export default function ChallengePage() {
   }, [dir.all, query, exact, userId])
 
   const isSelf = exact !== null && exact === userId
-  const canSend = !!exact && !isSelf && skill.trim().length > 0 && dir.ready
+  const canSend = !!exact && !isSelf && skill.trim().length > 0 && !!video && dir.ready
 
   async function submit(e: FormEvent) {
     e.preventDefault()
-    if (!canSend || busy) return
+    if (!canSend || busy || !video) return
     setBusy(true)
     setError(null)
-    const r = await callAction<{ battleId: string }>('challenge', { opponentUsername: query, modeId, skill: skill.trim() })
+    const up = await uploadVideo(video)
+    if (!up.ok) {
+      setBusy(false)
+      return setError(up.error)
+    }
+    const r = await callAction<{ battleId: string }>('challenge', { opponentUsername: query, modeId, skill: skill.trim(), ...up.video })
+    done()
     setBusy(false)
     if (!r.success) return setError(r.error)
     navigate(`/battle/${r.data.battleId}`)
@@ -54,7 +64,8 @@ export default function ChallengePage() {
       <p className="text-sm font-semibold uppercase tracking-[0.2em] text-primary">New battle</p>
       <h1 className="font-display mt-1 text-4xl font-extrabold uppercase italic leading-none">Throw down</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        You pick round 1's skill. They pick round 2 when they accept. Round 3 is freestyle.
+        You set round 1: name a skill and film it. They only see it after they accept, and they set round 2 the same way.
+        Round 3 is freestyle.
       </p>
 
       <form onSubmit={submit} className="mt-6 space-y-6" data-testid="challenge-form">
@@ -113,6 +124,14 @@ export default function ChallengePage() {
           />
         </div>
 
+        <div>
+          <p className="mb-1 block text-sm font-semibold">Show them the skill: record it now</p>
+          <p className="mb-2 text-sm text-muted-foreground">
+            This is your round 1 video. They'll have to match it. Hidden until they accept.
+          </p>
+          <VideoPicker value={video} onChange={setVideo} disabled={busy} progress={progress} />
+        </div>
+
         <fieldset>
           <legend className="mb-2 block text-sm font-semibold">Mode</legend>
           <div className="grid gap-2">
@@ -149,7 +168,7 @@ export default function ChallengePage() {
           </p>
         )}
         <Button type="submit" size="lg" className="w-full font-semibold" disabled={!canSend} loading={busy} data-testid="send-challenge">
-          <Swords className="size-4" aria-hidden /> Send challenge
+          <Swords className="size-4" aria-hidden /> {progress !== null ? `Uploading ${progress}%` : 'Send challenge'}
         </Button>
       </form>
     </div>

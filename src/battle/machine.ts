@@ -42,9 +42,21 @@
  *   "closed": the round has an outcome and points. The next round opens at
  *             the moment this one closed.
  *
- * Skills: Player A names round 1's skill when challenging; Player B names
- * round 2's (different) skill when accepting; round 3 is freestyle, so each
- * player names their own skill on their submission (not tracked here).
+ * Skills and setter videos (rules v2, D53): Player A names round 1's skill AND
+ * films it when challenging; Player B names round 2's (different) skill AND
+ * films it when accepting. Those skill names and videos live only on hidden
+ * submission rows; this state never holds a skill before its round opens.
+ * When round 1 or 2 opens, its setter counts as already submitted and the
+ * skill is written into the round (the server reads it from the hidden row and
+ * passes it on the action that opens the round). Only the other player (the
+ * replicator) has a deadline in those rounds: when they submit, voting opens;
+ * if they miss, the setter wins by forfeit. Round 3 is freestyle and blind,
+ * unchanged: each player names their own skill on their submission.
+ *
+ * Battles created before D53 have no `rules` field (legacy, v1): both players
+ * submit blind in every round and the round 1/2 skills sit in the state from
+ * the start. In-progress legacy battles finish that way; legacy invites can no
+ * longer be accepted (D54).
  */
 
 import { getMode, type ModeId } from './modes'
@@ -68,7 +80,10 @@ export type RoundOutcome =
 
 export interface RoundState {
   number: RoundNumber
-  /** Shared skill for rounds 1 and 2; null for round 3 (freestyle). */
+  /**
+   * Shared skill for rounds 1 and 2; null for round 3 (freestyle). Under the
+   * setter rules it stays null until the round opens (D53).
+   */
   skill: string | null
   phase: RoundPhase
   submitDeadline: number | null
@@ -99,6 +114,8 @@ export interface BattleResult {
 export interface BattleState {
   /** Bumped by every successful transition; the concurrency guard keys on it. */
   version: number
+  /** 2 = setter rules (D53). Absent on battles created before them (legacy). */
+  rules?: 2
   modeId: ModeId
   playerA: string
   playerB: string
@@ -119,17 +136,26 @@ export interface BattleState {
 }
 
 export type BattleAction =
-  | { type: 'accept'; by: string; round2Skill: string }
+  /**
+   * B accepts and names round 2's skill. `round1Skill` is A's skill, read by
+   * the server from A's hidden setter submission (v2); legacy battles have it
+   * in the state already.
+   */
+  | { type: 'accept'; by: string; round2Skill: string; round1Skill?: string | null }
   | { type: 'decline'; by: string }
   /** The challenger withdraws an invite that hasn't been answered yet. */
   | { type: 'cancel'; by: string }
   /** The invite's answer deadline has passed. */
   | { type: 'inviteExpiry' }
   | { type: 'submit'; by: string; round: RoundNumber }
-  /** The current round's submission deadline has passed. */
-  | { type: 'submissionDeadline' }
+  /**
+   * The current round's submission deadline has passed. `nextSkill` is the
+   * setter's skill for the round this opens (v2 round 2), read by the server
+   * from the hidden submission row.
+   */
+  | { type: 'submissionDeadline'; nextSkill?: string | null }
   /** The current round's voting window has ended; carries the final tally. */
-  | { type: 'closeVoting'; votesA: number; votesB: number }
+  | { type: 'closeVoting'; votesA: number; votesB: number; nextSkill?: string | null }
 
 /** Things that happened, so callers can send emails or log without diffing. */
 export type BattleEvent =
@@ -151,6 +177,7 @@ export type MachineErrorCode =
   | 'wrong_player'
   | 'wrong_status'
   | 'invite_expired'
+  | 'legacy_invite'
   | 'wrong_round'
   | 'wrong_phase'
   | 'already_submitted'
@@ -244,6 +271,39 @@ export function sideOf(state: BattleState, userId: string): Side | null {
   return null
 }
 
+/** True for battles under the setter rules (D53); false for legacy battles. */
+export function usesSetterRules(state: Pick<BattleState, 'rules'>): boolean {
+  return state.rules === 2
+}
+
+/**
+ * Who set this round's skill and pre-filmed it (v2): A in round 1, B in round
+ * 2. Null for round 3 (freestyle) and for every round of a legacy battle.
+ */
+export function setterOf(state: Pick<BattleState, 'rules'>, round: RoundNumber): Side | null {
+  if (!usesSetterRules(state)) return null
+  return round === 1 ? 'a' : round === 2 ? 'b' : null
+}
+
+/**
+ * Which submission rows everyone may see right now (round + side). The
+ * service flips exactly these to revealed; nothing else is ever public.
+ *   - A round whose submission window ended: every side that submitted.
+ *   - v2 rounds 1–2 once open: the setter's video (the skill to match).
+ */
+export function publicSubmissions(state: BattleState): Array<{ round: RoundNumber; side: Side }> {
+  const out: Array<{ round: RoundNumber; side: Side }> = []
+  for (const r of state.rounds) {
+    const setter = setterOf(state, r.number)
+    for (const side of ['a', 'b'] as const) {
+      const ended = r.revealedAt !== null && r.submitted[side]
+      const setterOpen = side === setter && r.phase !== 'pending'
+      if (ended || setterOpen) out.push({ round: r.number, side })
+    }
+  }
+  return out
+}
+
 export function currentRoundState(state: BattleState): RoundState | null {
   return state.currentRound ? state.rounds[state.currentRound - 1] : null
 }
@@ -322,13 +382,20 @@ function voteWindow(state: BattleState): number {
   return getMode(state.modeId)!.voteWindowMs
 }
 
-/** Open a round's submission window starting at `at`. */
-function openRound(state: BattleState, number: RoundNumber, at: number): BattleState {
+/**
+ * Open a round's submission window starting at `at`. In v2 rounds 1–2 the
+ * setter's video already exists, so the setter counts as submitted and the
+ * round's skill (read from the hidden row by the server) becomes public.
+ */
+function openRound(state: BattleState, number: RoundNumber, at: number, skill?: string | null): BattleState {
   const round = state.rounds[number - 1]
-  return {
-    ...withRound(state, { ...round, phase: 'submit', submitDeadline: at + submitWindow(state) }),
-    currentRound: number,
+  const setter = setterOf(state, number)
+  const opened: RoundState = { ...round, phase: 'submit', submitDeadline: at + submitWindow(state) }
+  if (setter) {
+    opened.submitted = { ...round.submitted, [setter]: true }
+    if (!opened.skill) opened.skill = normalizeSkill(skill) ?? null
   }
+  return { ...withRound(state, opened), currentRound: number }
 }
 
 /**
@@ -340,13 +407,14 @@ function closeRound(
   outcome: RoundOutcome,
   at: number,
   events: BattleEvent[],
+  nextSkill?: string | null,
 ): BattleState {
   const round = currentRoundState(state)!
   let next = withRound(state, { ...round, phase: 'closed', closedAt: at, outcome })
   events.push({ type: 'round_closed', round: round.number, outcome })
 
   if (round.number < 3) {
-    return openRound(next, (round.number + 1) as RoundNumber, at)
+    return openRound(next, (round.number + 1) as RoundNumber, at, nextSkill)
   }
   const result = battleResult(next.rounds.map((r) => r.outcome!))
   next = { ...next, status: 'complete', currentRound: null, completedAt: at, result }
@@ -363,7 +431,11 @@ export interface NewBattle {
   round1Skill: string
 }
 
-/** Player A challenges Player B. The battle waits in 'invited' until B answers. */
+/**
+ * Player A challenges Player B. The battle waits in 'invited' until B answers.
+ * The round 1 skill is checked here but NOT stored: it stays on A's hidden
+ * setter submission until round 1 opens (D53).
+ */
 export function createBattle(input: NewBattle, now: number): MachineResult {
   const mode = getMode(input.modeId)
   if (!mode) return fail('invalid_mode', `Unknown mode "${input.modeId}".`)
@@ -373,12 +445,13 @@ export function createBattle(input: NewBattle, now: number): MachineResult {
 
   const state: BattleState = {
     version: 0,
+    rules: 2,
     modeId: mode.id,
     playerA: input.playerA,
     playerB: input.playerB,
     status: 'invited',
     currentRound: null,
-    rounds: [emptyRound(1, skill), emptyRound(2, null), emptyRound(3, null)],
+    rounds: [emptyRound(1, null), emptyRound(2, null), emptyRound(3, null)],
     createdAt: now,
     inviteExpiresAt: now + mode.inviteWindowMs,
     respondedAt: null,
@@ -404,19 +477,25 @@ function apply(state: BattleState, action: BattleAction, now: number): MachineRe
   const events: BattleEvent[] = []
 
   switch (action.type) {
-    // B answers the challenge. Accepting names round 2's skill and opens round 1.
+    // B answers the challenge. Accepting names (and, in v2, films) round 2's
+    // skill and opens round 1.
     case 'accept': {
       const closed = inviteClosed(state, now)
       if (closed) return closed
       if (action.by !== state.playerB) return fail('wrong_player', 'Only the challenged player can accept.')
+      if (!usesSetterRules(state)) {
+        return fail('legacy_invite', 'This challenge was sent under the old rules. Ask for a new one.')
+      }
       const skill = normalizeSkill(action.round2Skill)
       if (!skill) return fail('invalid_skill', `Name a skill for round 2 (1–${SKILL_MAX_LENGTH} characters).`)
-      if (skill.toLowerCase() === state.rounds[0].skill?.toLowerCase()) {
+      const round1Skill = normalizeSkill(action.round1Skill)
+      if (!round1Skill) return fail('invalid_skill', "Round 1's skill is missing.")
+      if (skill.toLowerCase() === round1Skill.toLowerCase()) {
         return fail('same_skill', 'Round 2 needs a different skill from round 1.')
       }
-      let next: BattleState = { ...state, status: 'active', respondedAt: now }
-      next = withRound(next, { ...next.rounds[1], skill })
-      next = openRound(next, 1, now)
+      // Round 2's skill is NOT stored: it stays on B's hidden setter
+      // submission until round 2 opens.
+      const next = openRound({ ...state, status: 'active', respondedAt: now }, 1, now, round1Skill)
       events.push({ type: 'battle_started' })
       return { ok: true, state: next, events }
     }
@@ -496,7 +575,7 @@ function apply(state: BattleState, action: BattleAction, now: number): MachineRe
       const revealed = withRound(state, { ...round, revealedAt: at })
       // The round closes at the deadline itself, not at `now`, so a late
       // sweep produces exactly the same state as an on-time one.
-      return { ok: true, state: closeRound(revealed, outcome, at, events), events }
+      return { ok: true, state: closeRound(revealed, outcome, at, events, action.nextSkill), events }
     }
 
     // Voting window ended. The caller counts the votes and passes the tally.
@@ -513,7 +592,7 @@ function apply(state: BattleState, action: BattleAction, now: number): MachineRe
       // Zero votes is 0–0, which is a tie (+5 each).
       const winner: Side | 'tie' = votesA > votesB ? 'a' : votesB > votesA ? 'b' : 'tie'
       const outcome: RoundOutcome = { kind: 'votes', winner, votesA, votesB }
-      return { ok: true, state: closeRound(state, outcome, at, events), events }
+      return { ok: true, state: closeRound(state, outcome, at, events, action.nextSkill), events }
     }
   }
 }

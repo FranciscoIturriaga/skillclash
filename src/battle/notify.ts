@@ -77,16 +77,16 @@ export async function notifyChallenged(env: Env, tools: ActionTools, battleId: s
     const [challenger, opponent] = await Promise.all([person(tools, state.playerA), person(tools, state.playerB)])
     if (!opponent.email) return console.warn(`[email] challenged ${battleId}: opponent has no email`)
     const url = `${siteUrl(env)}/battle/${battleId}`
-    const skill = state.rounds[0].skill ?? ''
+    // No skill name here: round 1's skill stays hidden until B accepts (D53).
     const subject = `@${challenger.username} challenged you on SkillClash`
     const html = layout(
       "You've been challenged",
       `<p style="margin:0 0 8px;font-size:16px"><b style="color:#2dd4ff">@${esc(challenger.username)}</b> wants to battle you.</p>
-<p style="margin:0;color:#8b93a1">Round 1 skill: <b style="color:#f2f4f7">${esc(skill)}</b>. Accept and pick round 2's skill, or decline.</p>`,
+<p style="margin:0;color:#8b93a1">Their skill stays hidden until you accept. To accept, name round 2's skill and film it, or decline.</p>`,
       url,
       'See the challenge',
     )
-    const text = `@${challenger.username} challenged you on SkillClash.\nRound 1 skill: ${skill}\nAccept or decline: ${url}`
+    const text = `@${challenger.username} challenged you on SkillClash.\nTheir skill stays hidden until you accept.\nAccept or decline: ${url}`
     await send(tools, opponent.email, subject, html, text, `challenged ${battleId}`)
   } catch (e) {
     console.error(`[email] challenged ${battleId}: ${e instanceof Error ? e.message : String(e)}`)

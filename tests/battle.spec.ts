@@ -1,12 +1,16 @@
 /**
- * End-to-end battle with three real accounts (multi-user fixture):
- * A challenges B in test mode, B accepts, both submit, C votes, the server
- * refuses a competitor's vote and a duplicate vote, and results appear once
- * voting closes. Rounds 2 and 3 get no votes, so they end as 0–0 ties.
- * Also: a second open battle between the pair is refused (D47); a video loads
- * for its uploader before reveal but not for the opponent or a voter, and for
- * everyone after (D44); rounds show current first, then past newest first (D46);
- * an expanded past round adds only the videos and fits a 375px screen (D52).
+ * End-to-end battle with three real accounts (multi-user fixture), setter
+ * rules (D53): A challenges B with a round 1 skill and video, B accepts with a
+ * round 2 skill and video, B matches round 1, A matches round 2, both film
+ * round 3 blind, C votes, the server refuses a competitor's vote and a
+ * duplicate vote, and results appear once voting closes. Rounds 2 and 3 get no
+ * votes, so they end as 0–0 ties.
+ * Hiding is checked at the network level: unrevealed skill names never appear
+ * in any HTTP response or WebSocket frame the other player or a voter
+ * receives, and unrevealed video URLs return 404 for them (D44, D53).
+ * Also: a second open battle between the pair is refused (D47); rounds show
+ * current first, then past newest first (D46); an expanded past round adds
+ * only the videos and fits a 375px screen (D52).
  * A second test covers cancelling an invite and challenging again (D50, D51).
  *
  * Test mode: 3 min to submit, 20 s to vote (src/battle/modes.ts).
@@ -35,6 +39,57 @@ test.skip(
 test.describe.configure({ mode: 'serial' })
 
 const CLIP = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'clip.webm')
+
+/**
+ * Records the text of every HTTP response and WebSocket frame a page receives,
+ * so a test can assert that a secret never reached that browser.
+ */
+function sniff(page: Page) {
+  let seen: string[] = []
+  const pending: Promise<void>[] = []
+  page.on('response', (res) => {
+    const type = res.headers()['content-type'] ?? ''
+    if (type.startsWith('video/') || type.startsWith('image/') || type.includes('font')) return
+    pending.push(res.text().then((t) => void seen.push(t), () => {}))
+  })
+  page.on('websocket', (ws) => {
+    ws.on('framereceived', ({ payload }) => {
+      seen.push(typeof payload === 'string' ? payload : Buffer.from(payload).toString('utf8'))
+    })
+  })
+  return {
+    /** Whether `secret` appeared (case-insensitive) in anything received so far. */
+    async saw(secret: string): Promise<boolean> {
+      await Promise.all(pending.splice(0))
+      const needle = secret.toLowerCase()
+      return seen.some((t) => t.toLowerCase().includes(needle))
+    },
+    reset() {
+      seen = []
+    },
+  }
+}
+
+const uniqueSkill = (base: string) => `${base} ${Math.random().toString(36).slice(2, 8)}`
+
+/** Send a test-mode challenge through the form, with a round 1 video; returns the battle path. */
+async function sendChallenge(page: Page, opponent: string, skill: string): Promise<string> {
+  await page.goto('/challenge?test=1')
+  await page.getByLabel('Opponent').fill(opponent)
+  await page.getByLabel('Round 1 skill').fill(skill)
+  await expect(page.getByTestId('send-challenge')).toBeDisabled() // a video is required
+  await page.getByTestId('challenge-form').getByTestId('video-input').setInputFiles(CLIP)
+  await page.getByTestId('send-challenge').click()
+  await page.waitForURL(/\/battle\/[A-Za-z0-9]+$/, { timeout: 30_000 })
+  return new URL(page.url()).pathname
+}
+
+/** The src of the first <video> inside a locator, once it has loaded a URL. */
+async function videoSrc(scope: ReturnType<Page['getByTestId']>): Promise<string> {
+  const video = scope.locator('video').first()
+  await expect(video).toHaveAttribute('src', /\/api\/files\/apps\/[^/]+\/videos\//, { timeout: 20_000 })
+  return (await video.getAttribute('src'))!
+}
 
 /** Make sure the account has a username; return it. */
 async function ensureUsername(page: Page, email: string): Promise<string> {
@@ -76,7 +131,7 @@ async function sectionOrder(page: Page): Promise<string[]> {
 
 async function submitRound(page: Page, round: number) {
   const section = page.getByTestId(`round-${round}`)
-  await expect(section.getByTestId('video-uploader')).toBeVisible({ timeout: 20_000 })
+  await expect(section.getByTestId('video-uploader')).toBeVisible({ timeout: 30_000 })
   if (round === 3) await section.getByLabel('Your freestyle skill').fill('Handstand')
   await section.getByTestId('video-input').setInputFiles(CLIP)
   await section.getByTestId('submit-video').click()
@@ -107,13 +162,17 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
     await myBattlesLoaded()
   }
 
-  // A challenges B in test mode.
-  await a.page.goto('/challenge?test=1')
-  await a.page.getByLabel('Opponent').fill(nameB)
-  await a.page.getByLabel('Round 1 skill').fill('Keepy-ups')
-  await a.page.getByTestId('send-challenge').click()
-  await a.page.waitForURL(/\/battle\/[A-Za-z0-9]+$/, { timeout: 20_000 })
-  const battleUrl = new URL(a.page.url()).pathname
+  const SKILL1 = uniqueSkill('Keepy-ups')
+  const SKILL2 = uniqueSkill('Backflip')
+  const sniffB = sniff(b.page)
+  const sniffC = sniff(c.page)
+
+  // A challenges B in test mode, filming the round 1 skill as part of it.
+  const battleUrl = await sendChallenge(a.page, nameB, SKILL1)
+  const id = battleUrl.split('/').pop()!
+  // A (the setter) always sees their own skill and video.
+  await expect(a.page.getByTestId('own-round-1-skill')).toHaveText(SKILL1, { timeout: 20_000 })
+  const setterUrlA = await videoSrc(a.page.getByTestId('invite-waiting'))
 
   // One open battle per pair, in either direction (server-enforced).
   const again = await callAction(a.page, 'challenge', { opponentUsername: nameB, skill: 'Again', modeId: 'test' })
@@ -124,33 +183,61 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   expect(reverse.success).toBe(false)
   expect(reverse.error).toBe(`You already have an open battle with @${nameA}.`)
 
-  // B sees it on home and accepts.
+  // Blind invite: B sees only who, the mode and the expiry. No skill, no video.
   await b.page.goto('/home')
   await expect(b.page.getByTestId('group-invite').getByTestId('battle-card').first()).toBeVisible({ timeout: 20_000 })
   await b.page.goto(battleUrl)
-  await b.page.getByLabel('Round 2 skill').fill('Backflip')
-  await b.page.getByTestId('accept-challenge').click()
-  await expect(b.page.getByTestId('round-1-phase')).toHaveText('Filming', { timeout: 20_000 })
-
-  // Round 1: both submit. A's video is hidden from B until both are in.
-  await a.page.goto(battleUrl)
-  await submitRound(a.page, 1)
-  await expect(b.page.getByTestId('round-1-a-status')).toHaveText(/Filmed/, { timeout: 20_000 })
-
-  // Before reveal, A's video loads for A only, even if B or C learn its URL.
-  const videoA = a.page.getByTestId('round-1').locator('video')
-  await expect(videoA).toHaveAttribute('src', /\/api\/files\/apps\/[^/]+\/videos\//, { timeout: 20_000 })
-  const urlA = (await videoA.getAttribute('src'))!
+  await expect(b.page.getByTestId('invite-headline')).toHaveText(`@${nameA} challenged you`, { timeout: 20_000 })
+  await expect(b.page.getByTestId('invite-panel')).toContainText('Test (short windows) mode')
+  await expect(b.page.getByTestId('invite-expires')).toContainText('Expires in')
+  await expect(b.page.getByTestId('round-1-skill')).not.toContainText(SKILL1)
   await c.page.goto(battleUrl)
-  expect(await videoStatus(a.page, urlA)).toBe(206)
-  expect(await videoStatus(b.page, urlA)).toBe(404)
-  expect(await videoStatus(c.page, urlA)).toBe(404)
+  await expect(c.page.getByTestId('round-1-skill')).toBeVisible({ timeout: 20_000 })
+  // Not in the page, and not anywhere in the network traffic or subscriptions.
+  await expect(b.page.locator('body')).not.toContainText(SKILL1)
+  await expect(c.page.locator('body')).not.toContainText(SKILL1)
+  expect(await sniffB.saw(SKILL1)).toBe(false)
+  expect(await sniffC.saw(SKILL1)).toBe(false)
+  // A's video is refused even if B or C learn its URL.
+  expect(await videoStatus(a.page, setterUrlA)).toBe(206)
+  expect(await videoStatus(b.page, setterUrlA)).toBe(404)
+  expect(await videoStatus(c.page, setterUrlA)).toBe(404)
 
+  // Accepting needs a round 2 skill different from round 1's (checked on the
+  // server, where round 1's skill lives) and a video.
+  const sameSkill = await callAction(b.page, 'acceptChallenge', { battleId: id, round2Skill: SKILL1.toUpperCase() })
+  expect(sameSkill.success).toBe(false)
+  expect(sameSkill.code).toBe('same_skill')
+  const noVideo = await callAction(b.page, 'acceptChallenge', { battleId: id, round2Skill: SKILL2 })
+  expect(noVideo.success).toBe(false)
+  expect(await sniffB.saw(SKILL1)).toBe(false) // the refusal doesn't leak it either
+
+  const sniffA = sniff(a.page)
+  await a.page.goto(battleUrl)
+  await b.page.getByLabel('Round 2 skill').fill(SKILL2)
+  await b.page.getByTestId('invite-panel').getByTestId('video-input').setInputFiles(CLIP)
+  await b.page.getByTestId('accept-challenge').click()
+
+  // Round 1 opens: B now sees A's skill and video above their own upload.
+  await expect(b.page.getByTestId('round-1-phase')).toHaveText('Filming', { timeout: 30_000 })
+  await expect(b.page.getByTestId('round-1-skill')).toHaveText(SKILL1)
+  const match1 = b.page.getByTestId('round-1').getByTestId('match-this')
+  await expect(match1).toContainText('Match this')
+  expect(await videoSrc(match1)).toBe(setterUrlA)
+  for (const p of [b.page, c.page]) expect(await videoStatus(p, setterUrlA)).toBe(206)
+  // Control: the sniffer does see a skill once it's public, so "not seen" above means something.
+  await expect.poll(() => sniffB.saw(SKILL1), { timeout: 10_000 }).toBe(true)
+  // B still sees their own round 2 skill and video; A and C see neither.
+  await expect(b.page.getByTestId('round-2-skill')).toHaveText(SKILL2)
+  const setterUrlB = await videoSrc(b.page.getByTestId('round-2-own-setter'))
+  await expect(a.page.getByTestId('round-1').getByTestId('setter-waiting')).toBeVisible({ timeout: 20_000 })
+  await expect(a.page.getByTestId('round-2-skill')).not.toContainText(SKILL2)
+  expect(await videoStatus(a.page, setterUrlB)).toBe(404)
+  expect(await videoStatus(c.page, setterUrlB)).toBe(404)
+
+  // Round 1: only B (the replicator) submits, and voting opens at once.
   await submitRound(b.page, 1)
   await expect(a.page.getByTestId('round-1-phase')).toHaveText('Voting', { timeout: 20_000 })
-
-  // After reveal, everyone signed in can load it, with Range support.
-  for (const p of [a.page, b.page, c.page]) expect(await videoStatus(p, urlA)).toBe(206)
 
   // C votes for A.
   await c.page.goto(battleUrl)
@@ -160,7 +247,6 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   await expect(round1.getByTestId('round-1-total-votes')).toContainText('1 vote', { timeout: 15_000 })
 
   // Duplicate vote from C is refused by the database (uniqueOn roundId+voterId).
-  const id = battleUrl.split('/').pop()!
   const dup = await callAction(c.page, 'castVote', { battleId: id, round: 1, side: 'b' })
   expect(dup.success).toBe(false)
   expect(dup.code).toBe('already_voted')
@@ -173,6 +259,12 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
 
   // Per-side counts are hidden while voting is open...
   await expect(c.page.getByTestId('round-1-summary')).toHaveCount(0)
+  // Round 2's skill and B's video are still hidden from A and the voter.
+  await expect(a.page.getByTestId('round-2-skill')).not.toContainText(SKILL2)
+  expect(await sniffA.saw(SKILL2)).toBe(false)
+  expect(await sniffC.saw(SKILL2)).toBe(false)
+  expect(await videoStatus(a.page, setterUrlB)).toBe(404)
+  expect(await videoStatus(c.page, setterUrlB)).toBe(404)
   // ...and appear in the round's summary once it closes (20 s window + settle grace).
   await expect(c.page.getByTestId('round-1-summary')).toContainText('1 vote', { timeout: 60_000 })
   await expect(c.page.getByTestId('round-1-summary')).toContainText('+10 pts')
@@ -188,13 +280,33 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   // Expanded adds the videos only; votes and points stay in the summary chips (D52).
   await expect(c.page.getByTestId('round-1-total-votes')).toHaveCount(0)
 
-  // Rounds 2 and 3: both submit, nobody votes → ties.
-  for (const round of [2, 3]) {
-    await expect(a.page.getByTestId(`round-${round}-phase`)).toHaveText('Filming', { timeout: 30_000 })
-    await submitRound(a.page, round)
-    await submitRound(b.page, round)
-    await expect(c.page.getByTestId(`round-${round}-summary`)).toContainText('+5 pts', { timeout: 60_000 })
-  }
+  // Round 2 opens: A sees B's skill and video, labeled "Match this".
+  await expect(a.page.getByTestId('round-2-phase')).toHaveText('Filming', { timeout: 30_000 })
+  await expect(a.page.getByTestId('round-2-skill')).toHaveText(SKILL2, { timeout: 20_000 })
+  const match2 = a.page.getByTestId('round-2').getByTestId('match-this')
+  await expect(match2).toContainText('Match this')
+  expect(await videoSrc(match2)).toBe(setterUrlB)
+  for (const p of [a.page, c.page]) expect(await videoStatus(p, setterUrlB)).toBe(206)
+  await expect.poll(() => sniffA.saw(SKILL2), { timeout: 10_000 }).toBe(true)
+  await expect(b.page.getByTestId('round-2').getByTestId('setter-waiting')).toBeVisible({ timeout: 20_000 })
+
+  // Round 2: only A submits; nobody votes → tie.
+  await submitRound(a.page, 2)
+  await expect(c.page.getByTestId('round-2-summary')).toContainText('+5 pts', { timeout: 60_000 })
+
+  // Round 3 (freestyle) is blind: both film, and A's video loads for A only
+  // until both are in, even if B or C learn its URL (D44).
+  await expect(a.page.getByTestId('round-3-phase')).toHaveText('Filming', { timeout: 30_000 })
+  await submitRound(a.page, 3)
+  const urlA3 = await videoSrc(a.page.getByTestId('round-3'))
+  await expect(b.page.getByTestId('round-3-a-status')).toHaveText(/Filmed/, { timeout: 20_000 })
+  expect(await videoStatus(a.page, urlA3)).toBe(206)
+  expect(await videoStatus(b.page, urlA3)).toBe(404)
+  expect(await videoStatus(c.page, urlA3)).toBe(404)
+  await submitRound(b.page, 3)
+  await expect(a.page.getByTestId('round-3-phase')).toHaveText('Voting', { timeout: 20_000 })
+  for (const p of [a.page, b.page, c.page]) expect(await videoStatus(p, urlA3)).toBe(206)
+  await expect(c.page.getByTestId('round-3-summary')).toContainText('+5 pts', { timeout: 60_000 })
 
   // Final result: A won round 1 (10 + 5 + 5 = 20, +10 bonus), B tied two (10).
   const result = c.page.getByTestId('battle-result')
@@ -228,12 +340,7 @@ test('cancel an invite, then the pair can challenge again', async ({ users }) =>
   const nameB = await ensureUsername(b.page, b.email)
 
   // A challenges B; the invite shows when it expires (test mode: 5 minutes).
-  await a.page.goto('/challenge?test=1')
-  await a.page.getByLabel('Opponent').fill(nameB)
-  await a.page.getByLabel('Round 1 skill').fill('Juggling')
-  await a.page.getByTestId('send-challenge').click()
-  await a.page.waitForURL(/\/battle\/[A-Za-z0-9]+$/, { timeout: 20_000 })
-  const battleUrl = new URL(a.page.url()).pathname
+  const battleUrl = await sendChallenge(a.page, nameB, uniqueSkill('Juggling'))
   const id = battleUrl.split('/').pop()!
   await expect(a.page.getByTestId('invite-expires')).toHaveText(/Expires in [45]m/, { timeout: 20_000 })
 
@@ -263,12 +370,11 @@ test('cancel an invite, then the pair can challenge again', async ({ users }) =>
   expect(accept.success).toBe(false)
 
   // The pair is free again: A can challenge B right away.
-  const again = await callAction(a.page, 'challenge', { opponentUsername: nameB, skill: 'Again', modeId: 'test' })
-  expect(again.success).toBe(true)
-  const againId = (again as { data?: { battleId: string } }).data!.battleId
+  const againUrl = await sendChallenge(a.page, nameB, uniqueSkill('Again'))
+  expect(againUrl).not.toBe(battleUrl)
 
   // Cancel from the battle page too, so the pair is left free.
-  await a.page.goto(`/battle/${againId}`)
+  await expect(a.page.getByTestId('invite-waiting')).toBeVisible({ timeout: 20_000 })
   await a.page.getByTestId('cancel-challenge').click()
   await a.page.getByTestId('confirm-cancel-challenge').click()
   await expect(a.page.getByTestId('battle-status')).toHaveText('Cancelled', { timeout: 15_000 })

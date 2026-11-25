@@ -14,12 +14,14 @@ function ok(r: MachineResult): BattleState {
 }
 const step = (s: BattleState, a: BattleAction, now: number) => ok(transition(s, a, now))
 const invited = () => ok(createBattle({ playerA: A, playerB: B, modeId: 'test', round1Skill: 'Juggling' }, T0))
-const active = () => step(invited(), { type: 'accept', by: B, round2Skill: 'Backflip' }, T0)
+const active = () => step(invited(), { type: 'accept', by: B, round2Skill: 'Backflip', round1Skill: 'Juggling' }, T0)
 
 function playRound(s: BattleState, votesA: number, votesB: number): BattleState {
   const r = s.currentRound!
   const at = s.rounds[r - 1].submitDeadline! - 1000
-  s = step(step(s, { type: 'submit', by: A, round: r }, at), { type: 'submit', by: B, round: r }, at)
+  // Under the setter rules the setter is already in (D53); only submit who isn't.
+  if (!s.rounds[r - 1].submitted.a) s = step(s, { type: 'submit', by: A, round: r }, at)
+  if (!s.rounds[r - 1].submitted.b) s = step(s, { type: 'submit', by: B, round: r }, at)
   return step(s, { type: 'closeVoting', votesA, votesB }, s.rounds[r - 1].voteDeadline!)
 }
 
@@ -31,9 +33,7 @@ describe('view helpers', () => {
   })
 
   it("puts an active battle in 'my_turn' until the viewer submits", () => {
-    const s = active()
-    expect(bucketFor(s, A)).toBe('my_turn')
-    const after = step(s, { type: 'submit', by: A, round: 1 }, T0 + 1000)
+    const after = active() // round 1: A set the skill, so A is already in (D53)
     expect(bucketFor(after, A)).toBe('in_progress')
     expect(bucketFor(after, B)).toBe('my_turn')
     expect(statusLabel(after, B)).toBe('Round 1 · Your turn')
@@ -43,7 +43,7 @@ describe('view helpers', () => {
   it('shows the submit deadline, then the vote deadline', () => {
     let s = active()
     expect(activeDeadline(s)?.kind).toBe('submit')
-    s = step(step(s, { type: 'submit', by: A, round: 1 }, T0), { type: 'submit', by: B, round: 1 }, T0)
+    s = step(s, { type: 'submit', by: B, round: 1 }, T0) // the replicator's video opens voting
     expect(activeDeadline(s)?.kind).toBe('vote')
     expect(statusLabel(s, C)).toBe('Round 1 · Voting')
   })

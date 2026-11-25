@@ -21,6 +21,8 @@ import {
   currentRoundState,
   dueAction,
   inviteDeadline,
+  publicSubmissions,
+  setterOf,
   transition,
   type BattleAction,
   type BattleEvent,
@@ -195,22 +197,43 @@ export interface Committed {
 export type EventHook = (battleId: string, state: BattleState, events: BattleEvent[]) => Promise<void>
 
 /**
- * Make videos visible for every round whose submission window has ended.
- * Only sides the state machine counted as submitted are revealed, so a late
- * upload that the machine refused stays hidden. Safe to call repeatedly.
+ * Make public exactly the submissions the state machine says are public
+ * (`publicSubmissions`): every counted video of a round whose submission
+ * window ended, plus a v2 setter's video once its round opens (D53). A late
+ * upload the machine refused, or a setter video for a round not yet open,
+ * stays hidden. Safe to call repeatedly.
  */
 export async function revealEndedRounds(tools: ActionTools, battleId: string, state: BattleState) {
-  for (const round of state.rounds) {
-    if (round.revealedAt === null) continue
-    for (const side of ['a', 'b'] as const) {
-      if (!round.submitted[side]) continue
-      const id = submissionId(battleId, round.number, side)
-      const sub = await tools.get<SubmissionRow & Record<string, unknown>>('submissions', id)
-      if (sub.success && sub.data.record.data.revealed !== 'yes') {
-        await tools.update('submissions', id, { revealed: 'yes' })
-      }
+  for (const { round, side } of publicSubmissions(state)) {
+    const id = submissionId(battleId, round, side)
+    const sub = await tools.get<SubmissionRow & Record<string, unknown>>('submissions', id)
+    if (sub.success && sub.data.record.data.revealed !== 'yes') {
+      await tools.update('submissions', id, { revealed: 'yes' })
     }
   }
+}
+
+/**
+ * The skill a v2 setter named for a round, read from their hidden submission
+ * row (server only). Null if there's no setter or no row.
+ */
+export async function setterSkill(
+  tools: ActionTools,
+  battleId: string,
+  state: BattleState,
+  round: RoundNumber,
+): Promise<string | null> {
+  const setter = setterOf(state, round)
+  if (!setter) return null
+  const r = await tools.get<SubmissionRow & Record<string, unknown>>('submissions', submissionId(battleId, round, setter))
+  return r.success ? (r.data.record.data.skill ?? null) : null
+}
+
+/** The next round's setter skill, when closing the current round opens one that has a setter. */
+async function nextSkillFor(tools: ActionTools, battleId: string, state: BattleState): Promise<string | null> {
+  const n = state.currentRound
+  if (n === null || n >= 3) return null
+  return setterSkill(tools, battleId, state, (n + 1) as RoundNumber)
 }
 
 /** Replay a claimed-but-unwritten transition (step 4 failed earlier). */
@@ -296,11 +319,12 @@ export async function advance(
       const round = currentRoundState(state)!
       if (now < round.voteDeadline! + VOTE_SETTLE_MS) break
       const tally = await countVotes(tools, battleId, round.number)
-      action = { type: 'closeVoting', votesA: tally.a, votesB: tally.b }
+      const nextSkill = await nextSkillFor(tools, battleId, state)
+      action = { type: 'closeVoting', votesA: tally.a, votesB: tally.b, nextSkill }
     } else if (due === 'inviteExpiry') {
       action = { type: 'inviteExpiry' }
     } else {
-      action = { type: 'submissionDeadline' }
+      action = { type: 'submissionDeadline', nextSkill: await nextSkillFor(tools, battleId, state) }
     }
     const c = await commitOnce(tools, battleId, state, action, actor, now)
     if (c.ok) {

@@ -29,6 +29,7 @@ import {
   roundId,
   rowFromState,
   runAction,
+  setterSkill,
   submissionId,
   toActionResult,
   type Outcome,
@@ -88,6 +89,42 @@ const setUsername: ActionHandler<Env> = async (ctx) => {
   return { success: true, data: { username: raw } }
 }
 
+// ─── Videos ─────────────────────────────────────────────────────────────────
+
+/**
+ * Keys must be ones this user generated for their own upload: the files proxy
+ * only lets a user upload to `videos/<their id>/<random>.<ext>` (http-routes.ts),
+ * so a player can't point their submission at someone else's file.
+ */
+export function videoKeyPattern(userId: string): RegExp {
+  return new RegExp(`(^|/)videos/${escapeRe(userId)}/[A-Za-z0-9_-]{16,64}\\.[a-z0-9]{2,5}$`)
+}
+
+export interface VideoParams {
+  fileKey: string
+  mimeType: string
+  sizeBytes: number
+  durationSec: number
+}
+
+/** Validate the uploaded-video params every video-carrying action takes (20 s / 50 MB, D8). */
+export function parseVideo(params: Record<string, unknown>, userId: string): Outcome<VideoParams> {
+  const fileKey = typeof params.fileKey === 'string' ? params.fileKey : ''
+  if (!fileKey) return err('bad_request', 'Record or choose a video first.')
+  if (!videoKeyPattern(userId).test(fileKey)) return err('bad_request', 'That upload does not belong to you.')
+  const sizeBytes = Number(params.sizeBytes)
+  const durationSec = Number(params.durationSec)
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0 || sizeBytes > MAX_VIDEO_BYTES) {
+    return err('bad_request', 'Videos must be 50 MB or smaller.')
+  }
+  if (!Number.isFinite(durationSec) || durationSec <= 0 || durationSec > MAX_VIDEO_SECONDS + DURATION_SLACK_SEC) {
+    return err('bad_request', 'Videos must be 20 seconds or shorter.')
+  }
+  const mimeType = typeof params.mimeType === 'string' ? params.mimeType.slice(0, 100) : ''
+  if (mimeType && !mimeType.startsWith('video/')) return err('bad_request', 'That file is not a video.')
+  return { ok: true, value: { fileKey, mimeType, sizeBytes, durationSec } }
+}
+
 // ─── Challenge lifecycle ────────────────────────────────────────────────────
 
 const challenge: ActionHandler<Env> = async (ctx) => {
@@ -123,19 +160,41 @@ const challenge: ActionHandler<Env> = async (ctx) => {
   }
 
   const now = Date.now()
+  const round1Skill = typeof ctx.params.skill === 'string' ? ctx.params.skill : ''
   const created = createBattle(
     {
       playerA: ctx.userId,
       playerB: opponentId,
       modeId: typeof ctx.params.modeId === 'string' ? ctx.params.modeId : 'standard',
-      round1Skill: typeof ctx.params.skill === 'string' ? ctx.params.skill : '',
+      round1Skill,
     },
     now,
   )
   if (!created.ok) return toActionResult(err(created.error.code, created.error.message))
   const state = created.state
+  // A films round 1's skill as part of the challenge (D53).
+  const video = parseVideo(ctx.params, ctx.userId)
+  if (!video.ok) return toActionResult(video)
 
   const battleId = newBattleId()
+  // The skill name and video live only on A's hidden setter row (owner-read
+  // until round 1 opens), never in the public battle state. Written first so
+  // a battle never exists without its setter video.
+  const setterRow = await ctx.tools.create(
+    'submissions',
+    {
+      battleId,
+      round: 1,
+      playerId: ctx.userId,
+      side: 'a',
+      ...video.value,
+      skill: normalizeSkill(round1Skill)!,
+      revealed: 'no',
+    },
+    submissionId(battleId, 1, 'a'),
+  )
+  if (!setterRow.success) return toActionResult(err('storage_error', setterRow.error))
+
   const row = await ctx.tools.create(
     'battles',
     {
@@ -157,16 +216,48 @@ const challenge: ActionHandler<Env> = async (ctx) => {
   return { success: true, data: { battleId } }
 }
 
+/**
+ * B accepts: names round 2's skill and films it (D53). Same pattern as
+ * submitVideo: dry-run the transition, write B's hidden setter row, then
+ * commit. Round 1's skill is read here from A's hidden row so the
+ * different-skill check runs on the server without the client ever seeing it.
+ */
 const acceptChallenge: ActionHandler<Env> = async (ctx) => {
+  const now = Date.now()
   const battleId = String(ctx.params.battleId ?? '')
   const round2Skill = typeof ctx.params.round2Skill === 'string' ? ctx.params.round2Skill : ''
+  const hook = makeEventHook(ctx.env, ctx.tools)
+
+  const current = await advance(ctx.tools, battleId, now, ctx.userId, hook)
+  if (!current.ok) return toActionResult(current)
+  const round1Skill = await setterSkill(ctx.tools, battleId, current.value, 1)
+  const dry = transition(current.value, { type: 'accept', by: ctx.userId, round2Skill, round1Skill }, now)
+  if (!dry.ok) return toActionResult(err(dry.error.code, dry.error.message))
+  const video = parseVideo(ctx.params, ctx.userId)
+  if (!video.ok) return toActionResult(video)
+
+  const setterRow = await ctx.tools.create(
+    'submissions',
+    {
+      battleId,
+      round: 2,
+      playerId: ctx.userId,
+      side: 'b',
+      ...video.value,
+      skill: normalizeSkill(round2Skill)!,
+      revealed: 'no',
+    },
+    submissionId(battleId, 2, 'b'),
+  )
+  if (!setterRow.success) return toActionResult(err('storage_error', setterRow.error))
+
   const r = await runAction(
     ctx.tools,
     battleId,
-    () => ({ type: 'accept', by: ctx.userId, round2Skill }),
+    () => ({ type: 'accept', by: ctx.userId, round2Skill, round1Skill }),
     ctx.userId,
-    Date.now(),
-    makeEventHook(ctx.env, ctx.tools),
+    now,
+    hook,
   )
   return toActionResult(r.ok ? { ok: true, value: { version: r.value.state.version } } : r)
 }
@@ -200,37 +291,15 @@ const cancelChallenge: ActionHandler<Env> = async (ctx) => {
 
 // ─── Submissions ────────────────────────────────────────────────────────────
 
-/**
- * Keys must be ones this user generated for their own upload: the files proxy
- * only lets a user upload to `videos/<their id>/<random>.<ext>` (http-routes.ts),
- * so a player can't point their submission at someone else's file.
- */
-export function videoKeyPattern(userId: string): RegExp {
-  return new RegExp(`(^|/)videos/${escapeRe(userId)}/[A-Za-z0-9_-]{16,64}\\.[a-z0-9]{2,5}$`)
-}
-
 const submitVideo: ActionHandler<Env> = async (ctx) => {
   const now = Date.now()
   const battleId = String(ctx.params.battleId ?? '')
   const round = asRound(ctx.params.round)
   if (!round) return toActionResult(err('bad_request', 'Pick a round (1–3).'))
 
-  const fileKey = typeof ctx.params.fileKey === 'string' ? ctx.params.fileKey : ''
-  if (!videoKeyPattern(ctx.userId).test(fileKey)) {
-    return toActionResult(err('bad_request', 'That upload does not belong to you.'))
-  }
-  const sizeBytes = Number(ctx.params.sizeBytes)
-  const durationSec = Number(ctx.params.durationSec)
-  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0 || sizeBytes > MAX_VIDEO_BYTES) {
-    return toActionResult(err('bad_request', 'Videos must be 50 MB or smaller.'))
-  }
-  if (!Number.isFinite(durationSec) || durationSec <= 0 || durationSec > MAX_VIDEO_SECONDS + DURATION_SLACK_SEC) {
-    return toActionResult(err('bad_request', 'Videos must be 20 seconds or shorter.'))
-  }
-  const mimeType = typeof ctx.params.mimeType === 'string' ? ctx.params.mimeType.slice(0, 100) : ''
-  if (mimeType && !mimeType.startsWith('video/')) {
-    return toActionResult(err('bad_request', 'That file is not a video.'))
-  }
+  const video = parseVideo(ctx.params, ctx.userId)
+  if (!video.ok) return toActionResult(video)
+  const { fileKey, mimeType, sizeBytes, durationSec } = video.value
 
   let skill: string | undefined
   if (round === 3) {
