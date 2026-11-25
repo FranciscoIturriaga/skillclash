@@ -13,6 +13,7 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - Email delivery not yet confirmed in production logs (no real battle finished on prod). Test-mode battles send no email (D48).
 - Deployed and pushed at dcaf8e9 (2026-11-25): set-and-match rules (b3323c1) plus D55 (compact locked rounds, blind accept copy, reload banner). Live bundle verified to carry the new copy. Prod sweep logs `active=2 invited=0 ... failed=0`. Working tree clean.
 - **Not yet checked by a person:** the D55 fix on a fully reloaded tab (the reported accept-panel bug was a stale tab), the set-and-match flow on a real phone (record in the challenge form and accept panel, "Match this"), the earlier phone checks (expanded rounds, Expires in, Cancel flow), and video playback in desktop Chrome (D43).
+- Deployed and pushed at af741ed (2026-11-25): stored stats, reels feed, points sort. Prod backfill ran once: `battles=0 counted=0` (no battle had completed on prod yet; 3 active). Marker written, so later completions count via the hook.
 - Decisions D1–D58 in `docs/DECISIONS.md`.
 
 ## Recent changes
@@ -42,7 +43,6 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - Out of scope for MVP: Stripe, followers, DMs, tournaments, rankings.
 
 ## Next steps
-- [ ] After deploy: check `npx deepspace logs --search stats` for `[stats] backfill done battles=… counted=…`, then a profile shows the same numbers as before.
 - [ ] On a phone: swipe between the two videos on a "Voting now" card, unmute, vote, and check the card's header still opens the battle page.
 - [ ] Fully reload a battle page as B on an open invite: uploader button, new copy, three compact locked rows (D55).
 - [ ] After a deploy, leave a tab open and confirm the "SkillClash was updated" banner appears on refocus (D55).
