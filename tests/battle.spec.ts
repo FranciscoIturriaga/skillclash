@@ -401,6 +401,26 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(375)
   const overflow = await c.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
   expect(overflow).toBeLessThanOrEqual(0)
+
+  // Profile tiles at 375px: same height, numbers on one line per row even
+  // though "Round wins" wraps.
+  await c.page.goto(`/u/${nameA}`)
+  const tiles = c.page.getByTestId('profile-stat-tile')
+  await expect(tiles).toHaveCount(6)
+  await expect(tiles.nth(5).locator('dd')).not.toHaveText('–', { timeout: 20_000 })
+  const boxes = await tiles.evaluateAll((els) =>
+    els.map((el) => ({ h: el.getBoundingClientRect().height, num: el.querySelector('dd')!.getBoundingClientRect().bottom })),
+  )
+  for (const b of boxes) expect(Math.abs(b.h - boxes[0].h)).toBeLessThanOrEqual(1)
+  for (const row of [boxes.slice(0, 3), boxes.slice(3)]) {
+    for (const b of row) expect(Math.abs(b.num - row[0].num)).toBeLessThanOrEqual(1)
+  }
+
+  // Text fields are at least 16px on a phone, so iOS Safari doesn't zoom in.
+  await c.page.goto('/challenge?test=1')
+  const skill = c.page.getByLabel('Round 1 skill')
+  await expect(skill).toBeVisible({ timeout: 20_000 })
+  expect(await skill.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16)
 })
 
 test('cancel an invite, then the pair can challenge again', async ({ users }) => {

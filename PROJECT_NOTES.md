@@ -17,6 +17,7 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - Decisions D1–D58 in `docs/DECISIONS.md`.
 
 ## Recent changes
+- 2026-11-25: iOS zoom fix: an unlayered rule in `styles.css` forces 16px on inputs/textarea/select on phones and touch devices (the SDK sign-in overlay uses 14px `text-sm`); viewport zoom untouched. Profile stat tiles are equal height with the number pinned to the bottom. Spec checks both at 375px.
 - 2026-11-25: Stored player stats (D56): `stats_entries` ledger (uniqueOn battleId+playerId) + public `player_stats`, written from the `battle_completed` hook and the repair path; one-time backfill from the cron (marker `app_migrations/stats-backfill-v1`). Profile reads `player_stats`. "Voting now" cards are reels with vote-from-feed (D57), sorted by combined points then deadline (D58).
 - 2026-11-25: D55: the accept-panel bug report was a stale tab (old JS, new server). Added a production-only "SkillClash was updated, Reload" banner, compact one-line locked rounds with per-viewer copy (`lockedRoundCopy`), and new accept panel copy.
 - 2026-11-25: Set-and-match rounds 1–2 (D53): A must film round 1's skill to challenge, B must name and film round 2's to accept; B's invite is blind; replicator-only deadlines; "Match this" box. Skills hidden server-side on setter submission rows; `publicSubmissions()` decides reveals. Old battles: D54.
@@ -73,4 +74,5 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - A thrown error in a cron task appears as a `log` line, not an `exception`. Check `npx deepspace logs --search cron`.
 - Dev builds expose `window.__callAction` (`src/lib/api.ts`, `import.meta.env.DEV` only) so specs can test server refusals.
 - The test-only battle mode appears in the challenge form only with `/challenge?test=1`.
+- Any field under 16px makes iOS Safari zoom in and stay zoomed; keep the 16px rule at the end of `styles.css` (it must stay outside `@layer` to beat the SDK's classes).
 - UI kit quirks: `Button` has no `asChild` (use `buttonVariants` on a `Link`); `EmptyState` `action` is `{label, onClick}`.

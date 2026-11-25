@@ -68,11 +68,13 @@ function Profile({ userId, username }: { userId: string; username: string }) {
         <h1 className="font-display mt-1 truncate text-4xl font-extrabold italic leading-none" data-testid="profile-username">
           @{username}
         </h1>
-        <dl className="mt-5 grid grid-cols-3 gap-3" data-testid="profile-stats">
+        {/* Equal-height tiles (auto-rows-fr), label on top, number pinned to the
+            bottom, so numbers line up even when a label wraps ("Round wins"). */}
+        <dl className="mt-5 grid auto-rows-fr grid-cols-3 gap-3" data-testid="profile-stats">
           {tiles.map(([label, value, color]) => (
-            <div key={label} className="rounded-xl bg-background/70 px-3 py-2.5">
-              <dt className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</dt>
-              <dd className={`font-display text-3xl font-extrabold tabular-nums ${color ?? ''}`}>{statsLoading ? '–' : value}</dd>
+            <div key={label} className="flex flex-col justify-between gap-1 rounded-xl bg-background/70 px-3 py-2.5" data-testid="profile-stat-tile">
+              <dt className="text-[11px] font-semibold uppercase leading-tight tracking-wider text-muted-foreground">{label}</dt>
+              <dd className={`font-display mt-auto text-3xl font-extrabold leading-none tabular-nums ${color ?? ''}`}>{statsLoading ? '–' : value}</dd>
             </div>
           ))}
         </dl>

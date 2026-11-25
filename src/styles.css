@@ -270,3 +270,17 @@
   scrollbar-width: none;
   &::-webkit-scrollbar { display: none; }
 }
+
+/*
+ * iOS Safari zooms into any focused field under 16px and stays zoomed. The
+ * SDK's sign-in overlay uses text-sm (14px) and our Input/Textarea drop to
+ * 14px at md, so force 16px on phones and touch tablets. Unlayered on purpose:
+ * it beats every Tailwind utility (those live in @layer). Zoom stays enabled.
+ */
+@media (max-width: 767.98px), (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
