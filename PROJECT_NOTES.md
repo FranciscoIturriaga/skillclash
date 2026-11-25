@@ -14,9 +14,10 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - Deployed and pushed at dcaf8e9 (2026-11-25): set-and-match rules (b3323c1) plus D55 (compact locked rounds, blind accept copy, reload banner). Live bundle verified to carry the new copy. Prod sweep logs `active=2 invited=0 ... failed=0`. Working tree clean.
 - **Not yet checked by a person:** the D55 fix on a fully reloaded tab (the reported accept-panel bug was a stale tab), the set-and-match flow on a real phone (record in the challenge form and accept panel, "Match this"), the earlier phone checks (expanded rounds, Expires in, Cancel flow), and video playback in desktop Chrome (D43).
 - Deployed and pushed at af741ed (2026-11-25): stored stats, reels feed, points sort. Prod backfill ran once: `battles=0 counted=0` (no battle had completed on prod yet; 3 active). Marker written, so later completions count via the hook.
-- Decisions D1–D58 in `docs/DECISIONS.md`.
+- Decisions D1–D60 in `docs/DECISIONS.md`.
 
 ## Recent changes
+- 2026-11-25: Phone layout (D59, D60): "Voting now" cards are one screen tall (`h-dvh` shell, `main` is a size container, list `h-[100cqh]`), the list snaps vertically on its own, the video track snaps one slide per swipe, and the video shrinks to fit at 9:16. `ScrollManager` resets `<main>` to the top on new navigations, sign-in and keyboard close, and restores it on back/forward. Hero copy: "Twenty-second clips".
 - 2026-11-25: iOS zoom fix: an unlayered rule in `styles.css` forces 16px on inputs/textarea/select on phones and touch devices (the SDK sign-in overlay uses 14px `text-sm`); viewport zoom untouched. Profile stat tiles are equal height with the number pinned to the bottom. Spec checks both at 375px.
 - 2026-11-25: Stored player stats (D56): `stats_entries` ledger (uniqueOn battleId+playerId) + public `player_stats`, written from the `battle_completed` hook and the repair path; one-time backfill from the cron (marker `app_migrations/stats-backfill-v1`). Profile reads `player_stats`. "Voting now" cards are reels with vote-from-feed (D57), sorted by combined points then deadline (D58).
 - 2026-11-25: D55: the accept-panel bug report was a stale tab (old JS, new server). Added a production-only "SkillClash was updated, Reload" banner, compact one-line locked rounds with per-viewer copy (`lockedRoundCopy`), and new accept panel copy.
@@ -37,6 +38,8 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - **Emails** (`src/battle/notify.ts`): recipient emails read server-side only; actions never return raw `users` rows. Result email fires once via the `battle_completed` event of the winning transition.
 - **Setter rules (D53):** `state.rules = 2` marks new battles. Never put an unrevealed skill in the battle state: the server passes it into the action that opens the round (`accept.round1Skill`, `nextSkill`). Battles without `rules` are legacy (D54).
 - **Stats (D56):** never increment `player_stats`; write a ledger row then recount (`recordBattleStats` in `src/battle/stats.ts`). Any new completion path must call it.
+- **Scroll container (D60):** the page scrolls inside `<main id="app-main">`, not the window. Scroll resets go through `resetScroll()` in `src/components/ScrollManager.tsx`; don't add React Router's `ScrollRestoration`.
+- **Feed card height (D59):** cards are sized by `100cqh` of `<main>`; anything added to a card must shrink the video area (`flex-1 min-h-0`), never push the vote button off screen.
 - **Locked rounds** are one-line rows; their copy comes from `lockedRoundCopy()` in `src/battle/view.ts` and is worded per viewer (D55).
 - **Stale tabs:** `src/components/UpdateBanner.tsx` (prod only) compares the loaded `/assets/index-*.js` with the live one and offers Reload; it never forces a reload (D55).
 - **Invites:** cancel (challenger only) and expiry (`inviteExpiresAt` in state; `inviteDeadline()` falls back to createdAt + window for old rows) both free the pair rule. No emails for either (D50, D51).
@@ -44,6 +47,8 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - Out of scope for MVP: Stripe, followers, DMs, tournaments, rankings.
 
 ## Next steps
+- [ ] On iPhone Safari: sign in (type in the fields so the keyboard opens), and check the home page opens with the top bar fully visible.
+- [ ] On a phone (SE and a larger one if possible): each "Voting now" card shows header, label, video and "Vote for this" without scrolling; one swipe lands exactly on the other video; vertical swipes snap card to card; the page above scrolls normally; back from a battle returns to the same spot.
 - [ ] On a phone: swipe between the two videos on a "Voting now" card, unmute, vote, and check the card's header still opens the battle page.
 - [ ] Fully reload a battle page as B on an open invite: uploader button, new copy, three compact locked rows (D55).
 - [ ] After a deploy, leave a tab open and confirm the "SkillClash was updated" banner appears on refocus (D55).
@@ -58,6 +63,7 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - [ ] HEVC iPhone videos may not play in desktop Chrome; no fallback UI yet (D49).
 
 ## Gotchas
+- A synthetic touch swipe sent while a smooth `scrollTo` is still running is swallowed; specs wait for the reel track to settle first (`settledAt`).
 - A bug report that shows copy not in `src` is probably a stale tab: grep the live bundle (`curl /home`, then its `assets/index-*.js` and chunks) before changing code.
 - `challenge`/`acceptChallenge` now need a video; specs send challenges through the form (`sendChallenge` in `battle.spec.ts`). The spec's `sniff()` records responses and WS frames to prove a secret never reached a browser.
 - Round results in the browser spec are read from the summary chips (`round-N-summary`); the old `round-N-outcome` line was removed (D52). The cancel test and the full battle test share Player A/B, so `battle.spec.ts` runs serially.

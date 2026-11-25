@@ -21,6 +21,7 @@ import { DeepSpaceAuthProvider, useAuthStatus } from 'deepspace'
 import { RecordProvider, RecordScope, AgentTools } from 'deepspace'
 import Navigation from '../../components/Navigation'
 import { UpdateBanner } from '../../components/UpdateBanner'
+import { MAIN_ID, ScrollManager } from '../../components/ScrollManager'
 import { useToast } from '@/components/ui'
 import { APP_NAME, SCOPE_ID } from '../../constants'
 import { schemas } from '../../schemas'
@@ -33,10 +34,14 @@ export default function AppLayout() {
           when <Seo> unmounts, so every route without <Seo> sets its own. */}
       <title>{APP_NAME}</title>
       <AuthBoot>
-        <div className="flex h-screen flex-col bg-background overflow-hidden">
+        {/* h-dvh, not h-screen: on iPhone Safari 100vh is taller than the
+            visible area, so the window itself could scroll and hide the nav. */}
+        <div className="flex h-dvh flex-col bg-background overflow-hidden">
+          <ScrollManager />
           <Navigation />
           <UpdateBanner />
-          <main className="flex-1 overflow-y-auto min-h-0">
+          {/* container-type: size lets the feed size cards to this area (100cqh). */}
+          <main id={MAIN_ID} className="flex-1 overflow-y-auto min-h-0 [container-type:size]">
             <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground">Loading...</div>}>
               {/* Inside <main> so the nav (and sign-out) stays usable while a
                   new player picks a username. */}

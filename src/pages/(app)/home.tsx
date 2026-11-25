@@ -3,8 +3,8 @@
  * signed-in player needs to do (invites, your turn, in progress, sent, finished).
  */
 
-import { useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate, useNavigationType } from 'react-router-dom'
 import { AuthOverlay, useAuth, useQuery } from 'deepspace'
 import { Flame, Swords, Trophy } from 'lucide-react'
 import { Button, EmptyState, buttonVariants, cn } from '@/components/ui'
@@ -12,6 +12,7 @@ import type { BattleRowData, MyBucket } from '../../battle/view'
 import { bucketFor, sortVotingNow } from '../../battle/view'
 import type { PlayerStats } from '../../battle/stats'
 import { BattleCard } from '../../components/game/BattleCard'
+import { resetScroll } from '../../components/ScrollManager'
 import { FeedVoteCard } from '../../components/game/FeedVoteCard'
 import { CancelChallenge } from '../../components/game/CancelChallenge'
 import { SectionTitle } from '../../components/game/bits'
@@ -27,8 +28,15 @@ const GROUPS: Array<{ bucket: MyBucket; title: string }> = [
 
 export default function HomePage() {
   const { isSignedIn, userId } = useAuth()
+  // Home always opens at the top, except on back/forward (ScrollManager restores those).
+  const navType = useNavigationType()
+  useEffect(() => {
+    if (navType !== 'POP') resetScroll()
+  }, [navType])
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-8 px-4 py-6 pb-16">
+    // No bottom padding: the "Voting now" list is last and exactly one screen
+    // tall, so scrolling to the end lines it up with the screen.
+    <div className="mx-auto w-full max-w-2xl space-y-8 px-4 pt-6">
       {isSignedIn && userId ? <SignedInHeader /> : <SignedOutHero />}
       {isSignedIn && userId && <MyBattles userId={userId} />}
       <VotingNow viewerId={userId} />
@@ -44,7 +52,7 @@ function SignedInHeader() {
         {username ? `@${username}` : 'Player'}
       </p>
       <h1 className="font-display mt-1 text-4xl font-extrabold uppercase italic leading-none">Ready to clash?</h1>
-      <p className="mt-2 text-sm text-muted-foreground">Three rounds. Twenty seconds each. The crowd decides.</p>
+      <p className="mt-2 text-sm text-muted-foreground">Three rounds. Twenty-second clips. The crowd decides.</p>
       <Link to="/challenge" className={cn(buttonVariants({ size: 'lg' }), 'mt-4 font-semibold')} data-testid="new-challenge">
         <Swords className="size-4" aria-hidden /> New challenge
       </Link>
@@ -163,7 +171,7 @@ function VotingNow({ viewerId }: { viewerId: string | null }) {
     )
   }, [records, statsQ.records])
   return (
-    <section data-testid="voting-now">
+    <section data-testid="voting-now" className={status === 'ready' && records.length > 0 ? '' : 'pb-16'}>
       <SectionTitle count={status === 'ready' ? records.length : undefined}>
         <Flame className="size-5 text-destructive" aria-hidden /> Voting now
       </SectionTitle>
@@ -176,9 +184,16 @@ function VotingNow({ viewerId }: { viewerId: string | null }) {
           description="When both players in a round have filmed, the videos drop here and anyone can vote."
         />
       ) : (
-        <div className="space-y-3">
+        // Reels: one card per screen (100cqh = the area under the nav), snapping
+        // vertically. Its own scroller, so the page above scrolls normally (D59).
+        <div
+          data-testid="voting-now-list"
+          className="no-scrollbar relative h-[100cqh] snap-y snap-mandatory overflow-y-auto"
+        >
           {sorted.map((r) => (
-            <FeedVoteCard key={r.id} battleId={r.id} state={r.state} viewerId={viewerId} />
+            <div key={r.id} className="h-full snap-start snap-always py-2" data-testid="voting-now-slot">
+              <FeedVoteCard battleId={r.id} state={r.state} viewerId={viewerId} />
+            </div>
           ))}
         </div>
       )}

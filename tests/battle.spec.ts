@@ -262,12 +262,22 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   await expect(a.page.getByTestId('round-1-phase')).toHaveText('Voting', { timeout: 20_000 })
 
   const feedCard = (p: Page) => p.locator(`[data-testid="feed-vote-card"][data-battle-id="${id}"]`)
+  // Bring the Voting now list to the top of the screen and its slot for this
+  // battle into the list, the way a phone user lands on it (D59).
+  const showCard = (p: Page) =>
+    feedCard(p).evaluate((el) => {
+      const list = el.closest('[data-testid="voting-now-list"]') as HTMLElement
+      list.scrollIntoView({ block: 'start' })
+      list.scrollTop = (el.parentElement as HTMLElement).offsetTop
+    })
+  const cViewport = c.page.viewportSize()!
+  await c.page.setViewportSize({ width: 375, height: 667 }) // iPhone SE
   await Promise.all([
     (async () => {
       // C: one video at a time, 1/2 → 2/2 by arrow and by swipe, then votes from the feed.
       const card = feedCard(c.page)
       await expect(card).toBeVisible({ timeout: 20_000 })
-      await card.scrollIntoViewIfNeeded()
+      await showCard(c.page)
       const indicator = card.getByTestId('reel-indicator')
       await expect(indicator).toHaveText('1/2')
       await expect(card.getByTestId('reel-slide-a').getByTestId('reel-label')).toHaveText(`@${nameA}'s video`)
@@ -280,8 +290,25 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
       await expect(card.getByTestId('reel-video-b')).toHaveAttribute('src', /videos\//)
       await card.getByTestId('reel-prev').click()
       await expect(indicator).toHaveText('1/2')
+      // A touch gesture sent while the arrow's smooth scroll is still running
+      // is swallowed by it, so wait until the track sits still on a slide.
+      const track = card.getByTestId('reel-track')
+      const settledAt = async (slide: number) => {
+        await expect
+          .poll(() =>
+            track.evaluate(
+              (el) =>
+                new Promise<number>((res) => {
+                  const a = el.scrollLeft
+                  setTimeout(() => res(a === el.scrollLeft ? Math.round(el.scrollLeft / el.clientWidth) : -1), 150)
+                }),
+            ),
+          )
+          .toBe(slide)
+      }
+      await settledAt(0)
       // Swipe left, then right, with a synthetic touch gesture on the track.
-      const box = (await card.getByTestId('reel-track').boundingBox())!
+      const box = (await track.boundingBox())!
       const cdp = await c.page.context().newCDPSession(c.page)
       const swipe = (dx: number) =>
         cdp.send('Input.synthesizeScrollGesture', {
@@ -294,8 +321,10 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
         })
       await swipe(-Math.round(box.width * 0.8))
       await expect(indicator).toHaveText('2/2')
+      await settledAt(1)
       await swipe(Math.round(box.width * 0.8))
       await expect(indicator).toHaveText('1/2')
+      await settledAt(0)
       // Vote for A from the feed: "You voted", and both buttons lock.
       await card.getByTestId('reel-vote-a').click()
       await expect(card.getByTestId('reel-vote-a')).toHaveText(/You voted/, { timeout: 15_000 })
@@ -312,6 +341,23 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
     })(),
   ])
   await aFeed.close()
+  // The whole card fits one phone screen with the vote button visible, at
+  // iPhone SE and iPhone 14 sizes ("You voted" line included, the tallest case).
+  for (const size of [{ width: 375, height: 667 }, { width: 390, height: 844 }]) {
+    await c.page.setViewportSize(size)
+    await showCard(c.page)
+    const card = feedCard(c.page)
+    const mainBox = (await c.page.locator('#app-main').boundingBox())!
+    const cardBox = (await card.boundingBox())!
+    const header = (await card.getByTestId('battle-card').boundingBox())!
+    const button = (await card.getByTestId('reel-vote-a').boundingBox())!
+    const video = (await card.getByTestId('reel-slide-a').getByTestId('reel-video-box').boundingBox())!
+    expect(header.y, `header at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(mainBox.y - 1)
+    expect(button.y + button.height, `vote button at ${size.width}x${size.height}`).toBeLessThanOrEqual(size.height)
+    expect(cardBox.y + cardBox.height).toBeLessThanOrEqual(size.height + 1)
+    expect(Math.abs(video.width / video.height - 9 / 16)).toBeLessThan(0.02)
+  }
+  await c.page.setViewportSize(cViewport)
   // The feed vote counted: A's open battle page shows the live total.
   await expect(a.page.getByTestId('round-1').getByTestId('round-1-total-votes')).toContainText('1 vote', { timeout: 15_000 })
 
@@ -401,6 +447,24 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(375)
   const overflow = await c.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
   expect(overflow).toBeLessThanOrEqual(0)
+
+  // Scroll: a new navigation starts at the top; back restores the position (D60).
+  await a.page.goto('/home')
+  const mainEl = a.page.locator('#app-main')
+  await expect(a.page.getByTestId('battle-card').first()).toBeVisible({ timeout: 20_000 })
+  const before = await mainEl.evaluate((m) => {
+    m.scrollTop = Math.min(300, m.scrollHeight - m.clientHeight)
+    return m.scrollTop
+  })
+  expect(before).toBeGreaterThan(0)
+  // Click without Playwright's auto-scroll, like a tap at that position.
+  await a.page.getByTestId('battle-card').first().evaluate((a) => (a as HTMLElement).click())
+  await a.page.waitForURL(/\/battle\//)
+  await expect.poll(() => mainEl.evaluate((m) => m.scrollTop)).toBe(0)
+  expect(await a.page.evaluate(() => window.scrollY)).toBe(0)
+  await a.page.goBack()
+  await a.page.waitForURL(/\/home$/)
+  await expect.poll(() => mainEl.evaluate((m) => m.scrollTop), { timeout: 5_000 }).toBeGreaterThan(before - 5)
 
   // Profile tiles at 375px: same height, numbers on one line per row even
   // though "Round wins" wraps.

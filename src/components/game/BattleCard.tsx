@@ -12,12 +12,15 @@ export function BattleCard({
   viewerId,
   highlight,
   className,
+  compact,
 }: {
   battleId: string
   state: BattleState
   viewerId: string | null
   highlight?: boolean
   className?: string
+  /** Tighter spacing, for the full-screen feed card (D59). */
+  compact?: boolean
 }) {
   const deadline = activeDeadline(state)
   const expiresAt = inviteExpiry(state)
@@ -32,7 +35,8 @@ export function BattleCard({
       to={`/battle/${battleId}`}
       data-testid="battle-card"
       className={cn(
-        'group block rounded-2xl border bg-card p-4 transition-colors hover:border-primary/50',
+        'group block rounded-2xl border bg-card transition-colors hover:border-primary/50',
+        compact ? 'px-3 py-2' : 'p-4',
         highlight ? 'border-primary/60' : 'border-border',
         className,
       )}
@@ -46,11 +50,11 @@ export function BattleCard({
         {expiresAt && <ExpiresIn at={expiresAt} className="normal-case tracking-normal" />}
       </div>
 
-      <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+      <div className={cn('grid grid-cols-[1fr_auto_1fr] items-center gap-3', compact ? 'mt-1' : 'mt-3')}>
         <div className="min-w-0">
           <PlayerTag userId={state.playerA} side="a" link={false} className="block text-base" />
         </div>
-        <div className="font-display text-center text-2xl font-extrabold italic leading-none">
+        <div className={cn('font-display text-center font-extrabold italic leading-none', compact ? 'text-xl' : 'text-2xl')}>
           {showScore ? (
             <span className="tabular-nums">
               <span className="text-side-a">{score.a}</span>
@@ -66,7 +70,7 @@ export function BattleCard({
         </div>
       </div>
 
-      <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
+      <div className={cn('flex items-center justify-between text-sm text-muted-foreground', compact ? 'mt-1' : 'mt-3')}>
         <span className="truncate">{roundLabel(shownRound)}{state.modeId === 'test' ? ' · test mode' : ''}</span>
         <ChevronRight className="size-4 shrink-0 transition-transform group-hover:translate-x-0.5" aria-hidden />
       </div>

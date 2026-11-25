@@ -99,6 +99,16 @@ function Reel({ battleId, state, roundNumber, viewerId }: { battleId: string; st
     }, 80)
   }
   useEffect(() => () => clearTimeout(scrollTimer.current), [])
+  // Settle the index as soon as a swipe ends, where supported.
+  useEffect(() => {
+    const t = trackRef.current
+    if (!t) return
+    const settle = () => {
+      if (t.clientWidth) setIndex(Math.max(0, Math.min(SIDES.length - 1, Math.round(t.scrollLeft / t.clientWidth))))
+    }
+    t.addEventListener('scrollend', settle)
+    return () => t.removeEventListener('scrollend', settle)
+  }, [])
 
   async function vote(side: Side) {
     setBusy(side)
@@ -116,15 +126,26 @@ function Reel({ battleId, state, roundNumber, viewerId }: { battleId: string; st
   const name = (side: Side) => nameOf(players[side]) ?? 'player'
 
   return (
-    <article ref={cardRef} data-testid="feed-vote-card" data-battle-id={battleId} className="overflow-hidden rounded-2xl border border-border bg-card">
-      <BattleCard battleId={battleId} state={state} viewerId={viewerId} className="rounded-none border-0 bg-transparent" />
+    // Fills its feed slot (one screen tall, D59): header, then the reel takes
+    // the rest; the video shrinks to fit, so the vote button is always on screen.
+    <article
+      ref={cardRef}
+      data-testid="feed-vote-card"
+      data-battle-id={battleId}
+      className="flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card"
+    >
+      <BattleCard battleId={battleId} state={state} viewerId={viewerId} compact className="shrink-0 rounded-none border-0 bg-transparent" />
 
-      <div className="relative" role="group" aria-roledescription="carousel" aria-label={`Round ${roundNumber} videos`}>
+      <div className="relative min-h-0 flex-1" role="group" aria-roledescription="carousel" aria-label={`Round ${roundNumber} videos`}>
+        {/* x mandatory + snap-always: one swipe lands exactly on the next video.
+            overscroll-x-contain keeps horizontal swipes from leaking out; the
+            browser locks each gesture to one axis, so vertical swipes on the
+            video still scroll the feed. */}
         <div
           ref={trackRef}
           onScroll={onScroll}
           data-testid="reel-track"
-          className="no-scrollbar flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain"
+          className="no-scrollbar flex h-full snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain"
         >
           {SIDES.map((side, i) => (
             <div
@@ -134,13 +155,13 @@ function Reel({ battleId, state, roundNumber, viewerId }: { battleId: string; st
               aria-roledescription="slide"
               aria-label={`${i + 1} of ${SIDES.length}: @${name(side)}'s video`}
               aria-hidden={i !== index}
-              className="flex w-full shrink-0 snap-center flex-col items-center gap-2 px-4 pb-4"
+              className="flex h-full w-full shrink-0 snap-center snap-always flex-col items-center gap-1.5 px-3 pb-2"
             >
-              <p data-testid="reel-label" className="w-full text-center text-sm font-semibold">
+              <p data-testid="reel-label" className="w-full shrink-0 text-center text-sm font-semibold leading-tight">
                 <span className={sideText[side]}>@{name(side)}</span>'s video
               </p>
               {roundNumber === 3 && subs[side]?.skill && (
-                <p data-testid={`reel-skill-${side}`} className="-mt-1 w-full truncate text-center text-xs text-muted-foreground">
+                <p data-testid={`reel-skill-${side}`} className="-mt-1 w-full shrink-0 truncate text-center text-xs text-muted-foreground">
                   {subs[side]!.skill}
                 </p>
               )}
@@ -154,14 +175,14 @@ function Reel({ battleId, state, roundNumber, viewerId }: { battleId: string; st
                 testId={`reel-video-${side}`}
               />
               {mySide ? null : !signedIn ? (
-                <Button size="lg" className="w-full max-w-xs font-semibold" onClick={() => setShowAuth(true)} tabIndex={i === index ? 0 : -1}>
+                <Button size="lg" className="w-full max-w-xs shrink-0 font-semibold" onClick={() => setShowAuth(true)} tabIndex={i === index ? 0 : -1}>
                   Sign in to vote
                 </Button>
               ) : (
                 <Button
                   size="lg"
                   data-testid={`reel-vote-${side}`}
-                  className="w-full max-w-xs font-semibold"
+                  className="w-full max-w-xs shrink-0 font-semibold"
                   variant={myVote === side ? 'secondary' : 'default'}
                   disabled={!!myVote || busy !== null || !subs[side]}
                   tabIndex={i === index ? 0 : -1}
@@ -205,14 +226,14 @@ function Reel({ battleId, state, roundNumber, viewerId }: { battleId: string; st
         <span
           data-testid="reel-indicator"
           aria-live="polite"
-          className="absolute right-3 top-0 rounded-full bg-background/80 px-2 py-0.5 text-xs font-semibold tabular-nums"
+          className="absolute right-3 top-0 z-10 rounded-full bg-background/80 px-2 py-0.5 text-xs font-semibold tabular-nums"
         >
           {index + 1}/{SIDES.length}
         </span>
       </div>
 
       {(mySide || myVote) && (
-        <p className="border-t border-border px-4 py-3 text-center text-sm text-muted-foreground" data-testid={mySide ? 'reel-competitor' : 'reel-you-voted'}>
+        <p className="shrink-0 border-t border-border px-3 py-1.5 text-center text-xs text-muted-foreground" data-testid={mySide ? 'reel-competitor' : 'reel-you-voted'}>
           {mySide
             ? "It's your battle, so you can't vote on it."
             : `You voted for @${name(myVote!)}. Vote counts show when voting closes.`}
@@ -265,7 +286,10 @@ function ReelVideo({
   }
 
   return (
-    <div className="relative aspect-[9/16] overflow-hidden rounded-xl bg-black" style={{ width: 'min(100%, calc(70vh * 9 / 16))' }}>
+    // Takes the slide's leftover height; the 9:16 box is as tall as that allows
+    // (and no wider than the slide); the video is object-contain inside it.
+    <div className="flex min-h-0 w-full flex-1 justify-center">
+    <div className="relative aspect-[9/16] h-full max-w-full overflow-hidden rounded-xl bg-black" data-testid="reel-video-box">
       <video
         ref={ref}
         data-testid={testId}
@@ -290,6 +314,7 @@ function ReelVideo({
         {muted ? <VolumeX className="size-4" aria-hidden /> : <Volume2 className="size-4" aria-hidden />}
         {muted ? 'Tap to unmute' : 'Sound on'}
       </button>
+    </div>
     </div>
   )
 }
