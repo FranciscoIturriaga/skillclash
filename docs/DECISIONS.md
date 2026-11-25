@@ -211,6 +211,7 @@ Decisions made during setup without the product owner present. Each entry record
 #### D32. Test accounts not created by the agent
 
 - **Decided:** Creating the three `@deepspace.test` accounts for the multi-user test was blocked by the session's permission rules, so the owner has to create them (commands in PROJECT_NOTES.md). The spec skips itself when fewer than 3 usable accounts exist.
+- **Update (2026-11-24):** the owner created them: `fi-skillclash-a@deepspace.test` ("Player A"), `fi-skillclash-b@deepspace.test` ("Player B") and `voter-c@deepspace.test` ("Voter C"). `player-a@`/`player-b@` were already taken in the global pool. See D42.
 
 ## Phase 3: UI
 
@@ -267,3 +268,13 @@ Decisions made during setup without the product owner present. Each entry record
 - **Why a dev-only `window.__callAction`:** the UI never shows a vote button to a competitor or a second vote button, so the only way to prove the *server* refuses those votes is to call the action as that user. It is only defined under `import.meta.env.DEV`, and it carries the same token the UI uses, so it grants nothing new.
 - **Status:** skips until 3 test accounts exist on this machine (D32).
 - **Alternatives:** a raw `request` call with a token taken from storage state (couples the spec to the auth implementation).
+
+### D42. Fixes from the first run with real accounts
+First `npx deepspace test run all` with accounts: 9 passed, 3 failed (the battle spec and two scaffold collab specs). Fixes:
+- **Spec asks for accounts by name.** `users(['Player A', 'Player B', 'Voter C'])` instead of `users(3)`, because the roles (challenger, opponent, voter) matter and the pool may hold other accounts. It skips naming whichever accounts are missing.
+- **Username gate moved inside `<main>`.** It used to replace the whole app shell, so a new player saw no nav (couldn't sign out), and the collab spec couldn't find `app-navigation`. Now only the page area shows the picker.
+- **Gate waits for the username list.** It used to render the page while `usernames` was still loading, then swap to the picker. The spec saw the page, decided no picker was coming, and then failed at `/me`. Users would have seen the same flash. Now a signed-in user sees an empty loading area until the list arrives.
+- **`/settings` and `/api-status` are exempt from the gate.** They're account and debug pages that don't need a username, and the scaffold's api-status spec runs with whichever account it gets.
+- **Spec waits for the picker or the home page's "New challenge" button**, which only renders once the gate has decided, instead of the nav.
+- **Cost note:** each run of the battle spec sends real emails through `email/send` (1 challenge + 2 results ≈ $0.04) to the `@deepspace.test` addresses.
+After the fixes: 12 passed, 0 failed, 0 skipped; 47 unit tests pass.

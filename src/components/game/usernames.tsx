@@ -7,6 +7,7 @@
  */
 
 import { createContext, useContext, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useAuth, useQuery } from 'deepspace'
 import { Button, Input } from '@/components/ui'
 import { callAction } from '../../lib/api'
@@ -55,10 +56,18 @@ export function useMyUsername(): { username: string | null; ready: boolean } {
   return { username: userId ? dir.nameOf(userId) : null, ready: dir.ready }
 }
 
+/** Utility pages that work without a username (account settings, debug). */
+const UNGATED = ['/settings', '/api-status']
+
 export function UsernameGate({ children }: { children: ReactNode }) {
   const { isSignedIn, userId } = useAuth()
   const dir = useUsernames()
-  if (!isSignedIn || !userId || !dir.ready || dir.nameOf(userId)) return <>{children}</>
+  const { pathname } = useLocation()
+  if (!isSignedIn || !userId || UNGATED.some((p) => pathname.startsWith(p))) return <>{children}</>
+  // Hold the page until we know whether this player has a name, so the app
+  // doesn't flash and then swap to the picker.
+  if (!dir.ready) return <div aria-busy="true" data-testid="username-loading" className="h-full" />
+  if (dir.nameOf(userId)) return <>{children}</>
   return <UsernamePicker />
 }
 
@@ -81,7 +90,7 @@ function UsernamePicker() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-5 py-12">
+    <div className="flex min-h-full items-center justify-center px-5 py-12">
       <form
         onSubmit={submit}
         data-testid="username-picker"

@@ -5,18 +5,25 @@
  * voting closes. Rounds 2 and 3 get no votes, so they end as 0–0 ties.
  *
  * Test mode: 3 min to submit, 20 s to vote (src/battle/modes.ts).
- * Needs 3 usable test accounts; skips otherwise (DECISIONS D32).
+ * Needs the three named test accounts below; skips otherwise (DECISIONS D32, D42).
  */
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
-import { test, expect, loadAllTestAccounts } from 'deepspace/testing'
+import { test, expect, findTestAccountByName } from 'deepspace/testing'
 
-const usable = loadAllTestAccounts().length
+// Roles matter here (challenger, opponent, voter), so the spec asks for the
+// project's accounts by name:
+//   Player A = fi-skillclash-a@deepspace.test
+//   Player B = fi-skillclash-b@deepspace.test
+//   Voter C  = voter-c@deepspace.test
+const ACCOUNTS = ['Player A', 'Player B', 'Voter C']
+const missing = ACCOUNTS.filter((n) => !findTestAccountByName(n))
 test.skip(
-  usable < 3,
-  `Needs 3 usable test accounts, found ${usable}. Create them with ` +
-    '`npx deepspace test accounts create --email <name>@deepspace.test --name "<name>" --password-stdin`.',
+  missing.length > 0,
+  `Missing test accounts: ${missing.join(', ')}. Create them with ` +
+    '`npx deepspace test accounts create --email <email> --name "<name>" --password-stdin` ' +
+    '(fi-skillclash-a@, fi-skillclash-b@, voter-c@deepspace.test).',
 )
 
 const CLIP = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'clip.webm')
@@ -24,7 +31,8 @@ const CLIP = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures',
 /** Make sure the account has a username; return it. */
 async function ensureUsername(page: Page, email: string): Promise<string> {
   await page.goto('/home')
-  await expect(page.getByTestId('app-navigation').or(page.getByTestId('username-picker'))).toBeVisible({ timeout: 20_000 })
+  // The gate shows either the picker or the page once usernames have loaded.
+  await expect(page.getByTestId('username-picker').or(page.getByTestId('new-challenge'))).toBeVisible({ timeout: 20_000 })
   const picker = page.getByTestId('username-picker')
   if (await picker.isVisible()) {
     const base = email.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 12)
@@ -57,7 +65,7 @@ async function submitRound(page: Page, round: number) {
 
 test('full battle: challenge, accept, submit, vote rules, results', async ({ users }) => {
   test.setTimeout(240_000)
-  const [a, b, c] = await users(3)
+  const [a, b, c] = await users(ACCOUNTS)
   await ensureUsername(a.page, a.email)
   const nameB = await ensureUsername(b.page, b.email)
   await ensureUsername(c.page, c.email)

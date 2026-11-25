@@ -36,7 +36,11 @@ export default function AppLayout() {
           <Navigation />
           <main className="flex-1 overflow-y-auto min-h-0">
             <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground">Loading...</div>}>
-              <Outlet />
+              {/* Inside <main> so the nav (and sign-out) stays usable while a
+                  new player picks a username. */}
+              <UsernameGate>
+                <Outlet />
+              </UsernameGate>
             </Suspense>
           </main>
         </div>
@@ -76,9 +80,7 @@ function AuthBoot({ children }: { children: ReactNode }) {
       <RecordScope roomId={SCOPE_ID} schemas={schemas}>
         <AgentTools />
         {/* Username directory for the whole app; the gate asks a new player to pick one. */}
-        <UsernamesProvider>
-          <UsernameGate>{children}</UsernameGate>
-        </UsernamesProvider>
+        <UsernamesProvider>{children}</UsernamesProvider>
       </RecordScope>
     </RecordProvider>
   )

@@ -7,8 +7,8 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript frontend, Cloudflare Work
 
 ## Current status
 - MVP core is built and deployed: state machine, schemas and server actions, cron sweep, files guard, full UI (arena theme), two emails.
-- `npx deepspace test run all`: 8 pass, 4 skip. `tests/battle.spec.ts` (3-user full battle) and `tests/collab.spec.ts` skip until test accounts exist. 47 vitest unit tests pass.
-- **Test accounts don't exist yet.** The agent was not allowed to create them (DECISIONS D32). Create 3 yourself, then run `npx deepspace test run all --port 5181`.
+- `npx deepspace test run all --port 5181`: 12/12 pass, including `tests/battle.spec.ts` (3-user full battle, ~1.6 min). 47 vitest unit tests pass.
+- Test accounts (by name in the spec): Player A = fi-skillclash-a@deepspace.test, Player B = fi-skillclash-b@deepspace.test, Voter C = voter-c@deepspace.test. Each battle spec run sends ~3 real emails (~$0.04).
 - Emails have not been seen live yet: no battle has finished on production.
 - Decisions D1–D41 in `docs/DECISIONS.md`.
 
@@ -29,7 +29,6 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript frontend, Cloudflare Work
 - Out of scope for MVP: Stripe, followers, DMs, tournaments, rankings.
 
 ## Next steps
-- [ ] Create 3 test accounts and run the battle spec (`npx deepspace test run all --port 5181`).
 - [ ] Play one real battle on a phone; check `npx deepspace logs --search email` for `[email] ... sent`.
 - [ ] Demo mode with short windows and a seeded demo battle (next session).
 - [ ] Known gap: cron doesn't repair a stuck `invited` battle (D25); the next action on it does.
