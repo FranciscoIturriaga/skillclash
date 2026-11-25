@@ -19,6 +19,7 @@ import type { Env } from '../../worker'
 import type { BattleState, Side } from './machine'
 import type { EventHook } from './service'
 import { recordBattleStats } from './stats'
+import { settleBattleEnergy } from './energy'
 import { getMode } from './modes'
 
 interface Person {
@@ -125,13 +126,26 @@ async function notifyResult(env: Env, tools: ActionTools, battleId: string, stat
   }
 }
 
+const ENERGY_EVENTS = new Set(['battle_declined', 'battle_cancelled', 'battle_expired', 'battle_completed'])
+
 /**
- * What runs after a winning transition. On `battle_completed`: count the
+ * What runs after a winning transition. Battle end: settle energy (D66).
+ * On `battle_completed`: count the
  * battle on both profiles (stored stats, D56; idempotent), then email the
  * result. Each step's failure is logged and doesn't block the other.
  */
 export function makeEventHook(env: Env, tools: ActionTools): EventHook {
   return async (battleId, state, events) => {
+    // Energy (D66): refund a declined/cancelled/expired challenge, +1 to a
+    // battle's winner. Keyed on the battle, so a replay changes nothing.
+    if (events.some((e) => ENERGY_EVENTS.has(e.type))) {
+      try {
+        const done = await settleBattleEnergy(tools, battleId, state, Date.now())
+        if (done) console.log(`[energy] ${battleId} ${done}`)
+      } catch (e) {
+        console.error(`[energy] ${battleId}: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
     if (events.some((e) => e.type === 'battle_completed')) {
       try {
         const r = await recordBattleStats(tools, battleId, state)

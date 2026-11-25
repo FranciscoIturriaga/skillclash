@@ -36,6 +36,7 @@ import {
 } from '../battle/service'
 import { makeEventHook, notifyChallenged } from '../battle/notify'
 import { pickableModes } from '../battle/modes'
+import { devSetEnergy, energyNow, outOfEnergyMessage, refundChallenge, spendEnergy } from '../battle/energy'
 
 type Ctx = ActionContext<Env>
 
@@ -152,6 +153,17 @@ const challenge: ActionHandler<Env> = async (ctx) => {
   const mode = pickableModes(true).find((m) => m.id === modeId)
   if (!mode) return toActionResult(err('invalid_mode', 'Pick Standard or Rapid Fire.'))
 
+  // Energy (D66): refuse early with 0. The real check and the deduction
+  // happen together in spendEnergy below, right before the battle is written.
+  if (mode.energy) {
+    try {
+      const e = await energyNow(ctx.tools, ctx.userId, Date.now())
+      if (e.energy < 1) return toActionResult(err('out_of_energy', outOfEnergyMessage(e, Date.now())))
+    } catch (e) {
+      return toActionResult(err('storage_error', e instanceof Error ? e.message : String(e)))
+    }
+  }
+
   // One open (invited or active) battle per pair per mode, either direction
   // (D47, D64). Self-challenges fall through to createBattle's own refusal.
   if (opponentId !== ctx.userId) {
@@ -186,6 +198,19 @@ const challenge: ActionHandler<Env> = async (ctx) => {
   if (!video.ok) return toActionResult(video)
 
   const battleId = newBattleId()
+  // Pay for the challenge. The ledger's unique spend key makes the check and
+  // the deduction one step, so two challenges sent at once can't both spend
+  // the last energy. If a write below fails, the spend is refunded.
+  if (mode.energy) {
+    const spent = await spendEnergy(ctx.tools, ctx.userId, battleId, now)
+    if (!spent.ok) return toActionResult(err(spent.code, spent.message))
+  }
+  const undoSpend = async () => {
+    if (!mode.energy) return
+    await refundChallenge(ctx.tools, battleId, Date.now()).catch((e) =>
+      console.error(`[energy] refund after failed challenge ${battleId}: ${e instanceof Error ? e.message : String(e)}`),
+    )
+  }
   // The skill name and video live only on A's hidden setter row (owner-read
   // until round 1 opens), never in the public battle state. Written first so
   // a battle never exists without its setter video.
@@ -202,7 +227,10 @@ const challenge: ActionHandler<Env> = async (ctx) => {
     },
     submissionId(battleId, 1, 'a'),
   )
-  if (!setterRow.success) return toActionResult(err('storage_error', setterRow.error))
+  if (!setterRow.success) {
+    await undoSpend()
+    return toActionResult(err('storage_error', setterRow.error))
+  }
 
   const row = await ctx.tools.create(
     'battles',
@@ -215,7 +243,10 @@ const challenge: ActionHandler<Env> = async (ctx) => {
     },
     battleId,
   )
-  if (!row.success) return toActionResult(err('storage_error', row.error))
+  if (!row.success) {
+    await undoSpend()
+    return toActionResult(err('storage_error', row.error))
+  }
 
   for (const { number: n } of state.rounds) {
     await ctx.tools.create('rounds', { battleId, number: n, totalVotes: 0 }, roundId(battleId, n))
@@ -423,6 +454,20 @@ const myVote: ActionHandler<Env> = async (ctx) => {
   return { success: true, data: { side } }
 }
 
+/**
+ * Local dev server only (ALLOW_DEBUG_ROUTES is written into .dev.vars by
+ * `deepspace dev`/`test run` and never set in production): set your own
+ * energy, so the browser tests start from a known value. 404-like refusal
+ * everywhere else.
+ */
+const devSetMyEnergy: ActionHandler<Env> = async (ctx) => {
+  if (ctx.env.ALLOW_DEBUG_ROUTES !== 'true') return toActionResult(err('not_found', 'Unknown action.'))
+  const value = Number(ctx.params.energy)
+  if (!Number.isInteger(value) || value < 0 || value > 5) return toActionResult(err('bad_request', 'energy must be 0–5.'))
+  const snap = await devSetEnergy(ctx.tools, ctx.userId, value, Date.now())
+  return { success: true, data: snap }
+}
+
 export const battleActions: Record<string, ActionHandler<Env>> = {
   setUsername,
   challenge,
@@ -433,4 +478,5 @@ export const battleActions: Record<string, ActionHandler<Env>> = {
   castVote,
   syncBattle,
   myVote,
+  devSetMyEnergy,
 }

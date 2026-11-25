@@ -36,6 +36,12 @@ export interface BattleMode {
   badge: string | null
   /** Whether challenge/result emails go out (never for test or demo battles, D48). */
   emails: boolean
+  /**
+   * Whether sending this mode's challenge costs 1 energy, with refunds and the
+   * win reward (D66). The hidden test modes mirror their real modes so the
+   * browser tests exercise energy; demo battles never touch it.
+   */
+  energy: boolean
 }
 
 const SECOND = 1000
@@ -57,6 +63,7 @@ export const MODES: Record<ModeId, BattleMode> = {
     hidden: false,
     badge: null,
     emails: true,
+    energy: true,
   },
   rapid: {
     id: 'rapid',
@@ -71,6 +78,7 @@ export const MODES: Record<ModeId, BattleMode> = {
     hidden: false,
     badge: 'Rapid Fire',
     emails: true,
+    energy: true,
   },
   // Test-only: very short windows so automated tests can play a full battle
   // in seconds. Not offered in the UI unless the page is opened with ?test=1.
@@ -87,6 +95,7 @@ export const MODES: Record<ModeId, BattleMode> = {
     hidden: true,
     badge: 'Test',
     emails: false,
+    energy: true,
   },
   // Rapid Fire rules with the test voting window, for the browser test.
   rapid_test: {
@@ -102,6 +111,7 @@ export const MODES: Record<ModeId, BattleMode> = {
     hidden: true,
     badge: 'Rapid Fire',
     emails: false,
+    energy: true,
   },
   // Seeded demo battles for reviewers (D65): one Rapid Fire style round whose
   // voting stays open for a week. Only the owner-only seed route creates them.
@@ -118,6 +128,7 @@ export const MODES: Record<ModeId, BattleMode> = {
     hidden: true,
     badge: 'Demo',
     emails: false,
+    energy: false,
   },
 }
 

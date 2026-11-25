@@ -32,6 +32,7 @@ import {
   type Side,
 } from './machine'
 import { recordBattleStats } from './stats'
+import { settleBattleEnergy } from './energy'
 
 export const MAX_ATTEMPTS = 3
 /**
@@ -52,6 +53,7 @@ export type ServiceErrorCode =
   | 'username_taken'
   | 'no_username'
   | 'open_battle_exists'
+  | 'out_of_energy'
 
 export interface ServiceError {
   code: ServiceErrorCode
@@ -260,6 +262,12 @@ export async function repairIfStuck(tools: ActionTools, battleId: string, versio
       } catch (e) {
         console.error(`[stats] repair ${battleId}: ${e instanceof Error ? e.message : String(e)}`)
       }
+    }
+    // Same for energy refunds and win rewards (D66): keyed on the battle.
+    try {
+      await settleBattleEnergy(tools, battleId, toState, Date.now())
+    } catch (e) {
+      console.error(`[energy] repair ${battleId}: ${e instanceof Error ? e.message : String(e)}`)
     }
   }
   return w.success

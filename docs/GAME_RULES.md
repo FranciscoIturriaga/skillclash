@@ -90,6 +90,18 @@ Hidden test modes (automated tests only, `/challenge?test=1`): Test (3 rounds, 5
 
 - A demo battle between two demo players (@demo_ava and @demo_ben), already in voting with a 7-day window, so reviewers with a single account can vote. It shows a "Demo" badge. Only the app owner can create one (see PROJECT_NOTES.md); one open demo battle at a time.
 
+## Energy
+
+- Each player has up to **5 energy**. New players start full.
+- **Sending a challenge** (Standard or Rapid Fire) costs **1 energy**. Accepting is free. Demo battles don't use energy.
+- **Refill:** +1 energy every **5 hours**, up to 5. The refill timer only runs while energy is below 5: it starts when energy drops below 5, keeps its progress while energy stays below 5 (spending more doesn't restart it), and stops at 5.
+- **Refund:** the challenger gets the 1 energy back if the challenge is declined, cancelled or expires.
+- **Win reward:** the winner of a battle (either mode, challenger or opponent) gets **+1 energy**. Draws give nothing.
+- Energy never goes above 5: a refill, refund or win reward at 5 is lost.
+- **With 0 energy** a player can't send a challenge. The server refuses with "Out of energy. Next refill in Xh Ym." (under an hour: "Next refill in Ym").
+- Enforced on the server: the challenge action checks and deducts energy together with creating the battle; clients can't write energy. Refunds and win rewards happen at most once per battle, even if the battle's end is processed twice.
+- The home banner shows the energy bar (5 segments, the count, and "Next refill in 2h 14m" when below 5). At 0 the "New challenge" button is disabled and reads "Next energy in 2h 14m". The challenge form shows current energy too.
+
 ## Scoring
 
 ### Round scoring

@@ -211,6 +211,43 @@ export const statsEntriesSchema: CollectionSchema = {
   },
 }
 
+/**
+ * Public energy, one row per player (record id = user id): the player's
+ * energy ledger replayed into `energy` as of `lastRefillAt` (null when full).
+ * Clients compute the current value from it (refills need no write). Written
+ * only by the server (D66). Energy isn't secret, so it's public like stats.
+ */
+export const playerEnergySchema: CollectionSchema = {
+  name: 'player_energy',
+  columns: [
+    { name: 'userId', storage: 'text', interpretation: 'plain', required: true, immutable: true },
+    { name: 'energy', storage: 'number', interpretation: 'plain', default: 5 },
+    { name: 'lastRefillAt', storage: 'number', interpretation: 'plain' },
+  ],
+  permissions: publicReadOnly(),
+}
+
+/**
+ * The energy ledger: one row per change. The unique `key` is the guard:
+ * `spend:<player>:<n>` serializes a player's spends, `refund:<battleId>` and
+ * `win:<battleId>` make refunds and win rewards happen at most once (D66).
+ */
+export const energyEntriesSchema: CollectionSchema = {
+  name: 'energy_entries',
+  columns: [
+    { name: 'key', storage: 'text', interpretation: 'plain', required: true, immutable: true },
+    { name: 'playerId', storage: 'text', interpretation: 'plain', required: true, immutable: true },
+    { name: 'battleId', storage: 'text', interpretation: 'plain', immutable: true },
+    { name: 'kind', storage: 'text', interpretation: 'plain', required: true, immutable: true },
+    { name: 'amount', storage: 'number', interpretation: 'plain', required: true, immutable: true },
+    { name: 'at', storage: 'number', interpretation: 'plain', required: true, immutable: true },
+  ],
+  uniqueOn: ['key'],
+  permissions: {
+    admin: { read: true, ...NO_WRITES },
+  },
+}
+
 /** One-time server jobs that already ran (e.g. the stats backfill). Not readable by clients. */
 export const appMigrationsSchema: CollectionSchema = {
   name: 'app_migrations',
@@ -233,5 +270,7 @@ export const battleSchemas: CollectionSchema[] = [
   transitionsSchema,
   playerStatsSchema,
   statsEntriesSchema,
+  playerEnergySchema,
+  energyEntriesSchema,
   appMigrationsSchema,
 ]

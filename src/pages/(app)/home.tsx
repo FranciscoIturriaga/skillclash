@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useNavigationType } from 'react-router-dom'
 import { AuthOverlay, useAuth, useQuery } from 'deepspace'
-import { ChevronDown, Flame, Swords, Trophy } from 'lucide-react'
+import { ChevronDown, Flame, Swords, Trophy, Zap } from 'lucide-react'
 import { Button, EmptyState, buttonVariants, cn } from '@/components/ui'
 import type { BattleRowData, MyBucket } from '../../battle/view'
 import { bucketFor, sortVotingNow } from '../../battle/view'
@@ -17,6 +17,7 @@ import { FeedVoteCard } from '../../components/game/FeedVoteCard'
 import { CancelChallenge } from '../../components/game/CancelChallenge'
 import { SectionTitle } from '../../components/game/bits'
 import { useMyUsername } from '../../components/game/usernames'
+import { EnergyBar, useEnergy } from '../../components/game/energy'
 
 const GROUPS: Array<{ bucket: MyBucket; title: string }> = [
   { bucket: 'invite', title: 'Challenges for you' },
@@ -46,16 +47,27 @@ export default function HomePage() {
 
 function SignedInHeader() {
   const { username } = useMyUsername()
+  const energy = useEnergy()
+  const outOfEnergy = energy.ready && energy.energy < 1
+  // Tighter type and spacing than before so the energy bar fits without the
+  // banner growing (D66; checked at 375px in the browser spec).
   return (
-    <section className="bg-arena overflow-hidden rounded-2xl border border-border p-5">
-      <p className="text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+    <section className="bg-arena overflow-hidden rounded-2xl border border-border p-4" data-testid="home-hero">
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
         {username ? `@${username}` : 'Player'}
       </p>
       <h1 className="font-display mt-1 text-4xl font-extrabold uppercase italic leading-none">Ready to clash?</h1>
-      <p className="mt-2 text-sm text-muted-foreground">Three rounds. Twenty-second clips. The crowd decides.</p>
-      <Link to="/challenge" className={cn(buttonVariants({ size: 'lg' }), 'mt-4 font-semibold')} data-testid="new-challenge">
-        <Swords className="size-4" aria-hidden /> New challenge
-      </Link>
+      <p className="mt-1 text-xs leading-4 text-muted-foreground">Three rounds. Twenty-second clips. The crowd decides.</p>
+      <EnergyBar view={energy} className="mt-3" />
+      {outOfEnergy ? (
+        <Button size="lg" disabled className="mt-3 font-semibold" data-testid="new-challenge">
+          <Zap className="size-4" aria-hidden /> Next energy in {energy.refillIn}
+        </Button>
+      ) : (
+        <Link to="/challenge" className={cn(buttonVariants({ size: 'lg' }), 'mt-3 font-semibold')} data-testid="new-challenge">
+          <Swords className="size-4" aria-hidden /> New challenge
+        </Link>
+      )}
     </section>
   )
 }

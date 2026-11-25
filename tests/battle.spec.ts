@@ -12,6 +12,9 @@
  * current first, then past newest first (D46); an expanded past round adds
  * only the videos and fits a 375px screen (D52).
  * A second test covers cancelling an invite and challenging again (D50, D51).
+ * Energy (D66): each test sets its players' energy first (dev-only action);
+ * the tests check the spend, the cancel refund, win rewards on both sides,
+ * and a last test covers 0 energy (disabled button, server refusal, 375px).
  *
  * Test mode: 3 min to submit, 20 s to vote (src/battle/modes.ts).
  * Needs the three named test accounts below; skips otherwise (DECISIONS D32, D42).
@@ -124,6 +127,21 @@ async function callAction(page: Page, name: string, params: Record<string, unkno
   )
 }
 
+/**
+ * Set the signed-in player's energy (local dev server only, D66), so each test
+ * starts from a known value however many challenges earlier runs sent.
+ */
+async function setEnergy(page: Page, energy: number) {
+  const r = await callAction(page, 'devSetMyEnergy', { energy })
+  expect(r.success, r.error).toBe(true)
+}
+
+/** The home hero's energy count once it has loaded. */
+async function homeEnergy(page: Page, expected: string) {
+  if (!new URL(page.url()).pathname.endsWith('/home')) await page.goto('/home')
+  await expect(page.getByTestId('home-hero').getByTestId('energy-count')).toHaveText(expected, { timeout: 20_000 })
+}
+
 /** Status of a same-origin Range request for a video URL, the way <video> loads it. */
 async function videoStatus(page: Page, url: string): Promise<number> {
   return page.evaluate(async (u) => (await fetch(u, { headers: { Range: 'bytes=0-' } })).status, url)
@@ -152,6 +170,8 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   const nameA = await ensureUsername(a.page, a.email)
   const nameB = await ensureUsername(b.page, b.email)
   await ensureUsername(c.page, c.email)
+  await setEnergy(a.page, 5)
+  await setEnergy(b.page, 5)
 
   // A failed earlier run can leave an invite open, which would now block a new
   // challenge between the pair (D47). B declines any pending invites first.
@@ -545,6 +565,9 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   const skill = c.page.getByLabel('Round 1 skill')
   await expect(skill).toBeVisible({ timeout: 20_000 })
   expect(await skill.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16)
+
+  // Energy (D66): A paid 1 to challenge (5 → 4) and won the battle (+1).
+  await homeEnergy(a.page, '5/5')
 })
 
 test('cancel an invite, then the pair can challenge again', async ({ users }) => {
@@ -552,6 +575,7 @@ test('cancel an invite, then the pair can challenge again', async ({ users }) =>
   const [a, b] = await users(['Player A', 'Player B'])
   await ensureUsername(a.page, a.email)
   const nameB = await ensureUsername(b.page, b.email)
+  await setEnergy(a.page, 5)
 
   // A challenges B; the invite shows when it expires (test mode: 5 minutes).
   const battleUrl = await sendChallenge(a.page, nameB, uniqueSkill('Juggling'))
@@ -564,7 +588,10 @@ test('cancel an invite, then the pair can challenge again', async ({ users }) =>
   expect(byB.code).toBe('wrong_player')
 
   // A cancels from the "Sent challenges" list, with a confirm step.
+  // Sending cost 1 energy; the refill timer shows (D66).
   await a.page.goto('/home')
+  await homeEnergy(a.page, '4/5')
+  await expect(a.page.getByTestId('home-hero').getByTestId('energy-refill')).toHaveText(/^Next refill in (4h 59m|5h 0m)$/)
   const sent = a.page.getByTestId('group-sent').getByTestId('sent-item').filter({
     has: a.page.locator(`a[href="${battleUrl}"]`),
   })
@@ -574,6 +601,9 @@ test('cancel an invite, then the pair can challenge again', async ({ users }) =>
   await expect(sent.getByTestId('cancel-confirm')).toBeVisible()
   await sent.getByTestId('confirm-cancel-challenge').click()
   await expect(sent).toHaveCount(0, { timeout: 15_000 })
+  // Cancelling refunds it, live on the same page; full again, so no timer.
+  await homeEnergy(a.page, '5/5')
+  await expect(a.page.getByTestId('home-hero').getByTestId('energy-refill')).toHaveCount(0)
 
   // B sees it as cancelled and can no longer accept it.
   await b.page.goto(battleUrl)
@@ -601,6 +631,8 @@ test('Rapid Fire: one round, blind accept with the clock starting at once, no bo
   await ensureUsername(a.page, a.email)
   const nameB = await ensureUsername(b.page, b.email)
   await ensureUsername(c.page, c.email)
+  await setEnergy(a.page, 5)
+  await setEnergy(b.page, 3)
 
   // A failed earlier run can leave a Rapid Fire invite open; B declines it.
   const loaded = () =>
@@ -667,4 +699,60 @@ test('Rapid Fire: one round, blind accept with the clock starting at once, no bo
   await c.page.goto(`/u/${nameB}`)
   const card = c.page.locator(`a[href="/battle/${id}"]`).first()
   await expect(card.getByTestId('mode-badge')).toHaveText('Rapid Fire', { timeout: 20_000 })
+
+  // Energy (D66): accepting was free and B won, so B went 3 → 4. A paid 1.
+  await homeEnergy(b.page, '4/5')
+  await homeEnergy(a.page, '4/5')
+})
+
+test('energy: at 0 the challenge button is disabled and the server refuses', async ({ users }) => {
+  test.setTimeout(90_000)
+  const [a, b] = await users(['Player A', 'Player B'])
+  await ensureUsername(a.page, a.email)
+  const nameB = await ensureUsername(b.page, b.email)
+  await a.page.setViewportSize({ width: 375, height: 667 })
+  // Before energy the hero was 210px tall at 375px; it must not grow.
+  const HERO_MAX = 210
+
+  await setEnergy(a.page, 5)
+  await a.page.goto('/home')
+  const hero = a.page.getByTestId('home-hero')
+  await homeEnergy(a.page, '5/5')
+  await expect(hero.getByTestId('energy-segment').and(hero.locator('[data-filled="true"]'))).toHaveCount(5)
+  await expect(hero.getByTestId('energy-refill')).toHaveCount(0)
+  await expect(hero.getByTestId('new-challenge')).toHaveText('New challenge')
+  expect((await hero.boundingBox())!.height).toBeLessThanOrEqual(HERO_MAX)
+
+  // Drop to 0 while the page is open: the hero updates live.
+  await setEnergy(a.page, 0)
+  await homeEnergy(a.page, '0/5')
+  await expect(hero.getByTestId('energy-segment').and(hero.locator('[data-filled="true"]'))).toHaveCount(0)
+  await expect(hero.getByTestId('energy-refill')).toHaveText(/^Next refill in (4h 59m|5h 0m)$/)
+  const button = hero.getByTestId('new-challenge')
+  await expect(button).toBeDisabled()
+  await expect(button).toHaveText(/^\s*Next energy in (4h 59m|5h 0m)$/)
+  // The bar stays on one line and the hero no taller than before.
+  expect((await hero.getByTestId('energy-bar').boundingBox())!.height).toBeLessThanOrEqual(20)
+  expect((await hero.boundingBox())!.height).toBeLessThanOrEqual(HERO_MAX)
+  expect(await a.page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375)
+
+  // The server refuses a forced challenge, in every mode that costs energy.
+  for (const modeId of ['test', 'standard', 'rapid']) {
+    const forced = await callAction(a.page, 'challenge', { opponentUsername: nameB, skill: 'Forced', modeId })
+    expect(forced.success).toBe(false)
+    expect(forced.code).toBe('out_of_energy')
+    expect(forced.error).toMatch(/^Out of energy\. Next refill in (4h 59m|5h 0m)\.$/)
+  }
+
+  // The challenge form shows it and won't send.
+  await a.page.goto('/challenge?test=1')
+  await expect(a.page.getByTestId('challenge-energy').getByTestId('energy-count')).toHaveText('0/5', { timeout: 20_000 })
+  await expect(a.page.getByTestId('challenge-energy')).toContainText('Out of energy. Next refill in')
+  await a.page.getByLabel('Opponent').fill(nameB)
+  await a.page.getByLabel('Round 1 skill', { exact: true }).fill('Forced')
+  await a.page.getByTestId('challenge-form').getByTestId('video-input').setInputFiles(CLIP)
+  await expect(a.page.getByTestId('send-challenge')).toBeDisabled()
+  await expect(a.page.getByTestId('send-challenge')).toHaveText(/Next energy in/)
+
+  await setEnergy(a.page, 5)
 })

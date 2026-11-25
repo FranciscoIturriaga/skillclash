@@ -14,6 +14,7 @@ import { getMode, pickableModes } from '../../../battle/modes'
 import { callAction } from '../../../lib/api'
 import { useUsernames } from '../../../components/game/usernames'
 import { VideoPicker, useVideoUpload, type PickedVideo } from '../../../components/game/VideoUploader'
+import { EnergyBar, useEnergy } from '../../../components/game/energy'
 
 export default function ChallengePage() {
   const { userId } = useAuth()
@@ -46,7 +47,10 @@ export default function ChallengePage() {
   }, [dir.all, query, exact, userId])
 
   const isSelf = exact !== null && exact === userId
-  const canSend = !!exact && !isSelf && skill.trim().length > 0 && !!video && dir.ready
+  // Every pickable mode costs 1 energy to send (D66); the server has the final say.
+  const energy = useEnergy()
+  const outOfEnergy = energy.ready && energy.energy < 1 && getMode(modeId)?.energy !== false
+  const canSend = !!exact && !isSelf && skill.trim().length > 0 && !!video && dir.ready && !outOfEnergy
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -74,6 +78,15 @@ export default function ChallengePage() {
           ? 'Rapid Fire: one round. Name a skill and film it. They see it when they accept, then have 5 minutes to match it.'
           : 'You set round 1: name a skill and film it. They only see it after they accept, and they set round 2 the same way. Round 3 is freestyle.'}
       </p>
+
+      <div className="mt-4 rounded-xl border border-border bg-card px-4 py-3" data-testid="challenge-energy">
+        <EnergyBar view={energy} />
+        <p className="mt-1 text-xs text-muted-foreground">
+          {outOfEnergy
+            ? `Out of energy. Next refill in ${energy.refillIn}. Win a battle or wait for the refill.`
+            : 'Sending costs 1 energy. You get it back if they decline or the invite expires or is cancelled.'}
+        </p>
+      </div>
 
       <form onSubmit={submit} className="mt-6 space-y-6" data-testid="challenge-form">
         <fieldset>
@@ -179,7 +192,8 @@ export default function ChallengePage() {
           </p>
         )}
         <Button type="submit" size="lg" className="w-full font-semibold" disabled={!canSend} loading={busy} data-testid="send-challenge">
-          <Swords className="size-4" aria-hidden /> {progress !== null ? `Uploading ${progress}%` : 'Send challenge'}
+          <Swords className="size-4" aria-hidden />{' '}
+          {progress !== null ? `Uploading ${progress}%` : outOfEnergy ? `Next energy in ${energy.refillIn}` : 'Send challenge'}
         </Button>
       </form>
     </div>
