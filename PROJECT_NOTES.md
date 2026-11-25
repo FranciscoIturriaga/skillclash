@@ -8,10 +8,10 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 ## Current status
 - MVP is built and deployed: state machine, schemas and server actions, cron sweep (confirmed running in prod logs), files guard, full arena-themed UI, two emails (challenge, battle result).
 - **Set-and-match rules (D53, D54):** setters film first in rounds 1–2 (A with the challenge, B with the accept); blind invite; unrevealed skills live on hidden setter submission rows, not the public battle state. Old active battles finish under the old rules; old open invites can't be accepted.
-- `npx deepspace test run all --port 5181`: 13/13 pass (101 unit tests), including `tests/battle.spec.ts` (3-user set-and-match battle with network-level leak checks and feed reel swipe/arrow/vote checks, ~1.6 min, plus a 375px layout check; and a cancel-invite test that re-challenges the pair). 
+- `npx deepspace test run all --port 5181`: 14/14 pass (120 unit tests), including a short Rapid Fire battle, including `tests/battle.spec.ts` (3-user set-and-match battle with network-level leak checks and feed reel swipe/arrow/vote checks, ~1.6 min, plus a 375px layout check; and a cancel-invite test that re-challenges the pair). 
 - Test accounts (by name in the spec): "Player A" = fi-skillclash-a@deepspace.test, "Player B" = fi-skillclash-b@deepspace.test, "Voter C" = voter-c@deepspace.test (stored in `~/.deepspace/test-accounts.json`).
 - Email delivery not yet confirmed in production logs (no real battle finished on prod). Test-mode battles send no email (D48).
-- **Latest deploy: 8349507 (2026-11-25), pushed to main**, live bundle verified: one-screen snapping "Voting now" cards, scroll reset/restore (D59, D60), hero copy. Earlier the same day: 045ced7 (iOS zoom fix, profile tiles), af741ed (stored stats, reels feed, points sort; prod backfill ran with `battles=0`, marker written), dcaf8e9 (D55). Working tree clean apart from this notes commit.
+- **Latest deploy: cab6276 (2026-11-25), pushed to main**, live bundle verified: Rapid Fire mode, per-mode pair rule, mode badges, demo seed route (D63–D65). Earlier the same day: 1b4ff7f (Voting now heading jump), 294c7bc (window scrolling, camera inputs), 8349507, 045ced7, af741ed, dcaf8e9.
 - **Not yet checked by a person:** everything in Next steps marked "On a phone", the D55 fix on a fully reloaded tab, and video playback in desktop Chrome (D43).
 - Decisions D1–D60 in `docs/DECISIONS.md`.
 
@@ -50,6 +50,8 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - Out of scope for MVP: Stripe, followers, DMs, tournaments, rankings.
 
 ## Next steps
+- [ ] **Seed the live demo battle (not done yet):** the agent's shell wasn't allowed to set secrets. Run `npx deepspace secrets set DEMO_SEED_TOKEN --stdin < ~/.deepspace/skillclash-demo-token`, then `scripts/seed-demo.sh` (expect HTTP 200 with a battleId). If the route still 404s right after setting the secret, redeploy.
+- [ ] On two phones: play a Rapid Fire battle (see D63).
 - [ ] On iPhone Safari: sign in (type in the fields so the keyboard opens), and check the home page opens with the top bar fully visible.
 - [ ] On a phone (SE and a larger one if possible): each "Voting now" card shows header, label, video and "Vote for this" without scrolling; one swipe lands exactly on the other video; vertical swipes snap card to card; the page above scrolls normally; back from a battle returns to the same spot.
 - [ ] On a phone: swipe between the two videos on a "Voting now" card, unmute, vote, and check the card's header still opens the battle page.
