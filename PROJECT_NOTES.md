@@ -10,7 +10,8 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - `npx deepspace test run all --port 5181`: 12/12 pass, including `tests/battle.spec.ts` (3-user full battle, ~1.6 min; also checks video access before/after reveal, the one-open-battle rule and round order). 54 vitest unit tests pass.
 - Test accounts (by name in the spec): "Player A" = fi-skillclash-a@deepspace.test, "Player B" = fi-skillclash-b@deepspace.test, "Voter C" = voter-c@deepspace.test (stored in `~/.deepspace/test-accounts.json`).
 - Email delivery not yet confirmed in production logs (no real battle finished on prod). Test-mode battles send no email (D48).
-- Decisions D1–D49 in `docs/DECISIONS.md`.
+- Deployed and pushed at 596dc0c (2026-11-25). After deploy, the two revealed .mov clips return 206 `video/quicktime` with Range (curl). **Not yet checked:** actual playback in desktop Chrome (the Chrome extension wasn't connected).
+- Working tree clean. Decisions D1–D49 in `docs/DECISIONS.md`.
 
 ## Recent changes
 - 2026-11-25: Fixed blank videos: the player URL lacked the `apps/<appId>/` key prefix, so the platform answered 403 (D43). Files proxy now serves a video only to its uploader until reveal (D44). Feed card shows the current round's skill (D45). Battle page: current round first, past rounds collapsed newest first (D46). One open battle per pair (D47). No emails for test mode (D48). iPhone uploads checked: H.264, not HEVC (D49).
@@ -33,6 +34,7 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - Out of scope for MVP: Stripe, followers, DMs, tournaments, rankings.
 
 ## Next steps
+- [ ] Open the battle with the Photo Booth and iPhone clips in desktop Chrome and confirm both play (D43).
 - [ ] Play one real battle on a phone; check `npx deepspace logs --search email` for `[email] ... sent`.
 - [ ] Demo mode with short windows and a seeded demo battle.
 - [ ] Let a challenger cancel a sent invite (not possible today). Matters more now: an ignored invite blocks the pair (D47).
@@ -43,7 +45,8 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 ## Gotchas
 - **Port 5173 is used by another project** (HAVEN admin). Never kill it. Use `npx deepspace dev start --port 5180` and `npx deepspace test run --port 5181` (test run starts its own server).
 - `npx deepspace auth login` needs a real interactive terminal. Run it yourself (`! npx deepspace auth login`), not from an agent shell.
-- Each battle spec run sends ~3 real emails (~$0.04 from owner credits; $0.013 per email).
+- Battle spec runs use test mode, which sends no email (D48). Real battles cost $0.013 per email from owner credits.
+- To see where a video fails: `npx deepspace app files list --json` gives keys; request `/api/files/apps/<appId>/<key>?scope=app` with `Range: bytes=0-`. A 404 from our proxy means "not revealed"; a 403 "key outside scope" means the URL lacks the `apps/<appId>/` prefix. `videos/M2mP8…/biBS…mov` is an orphan upload (404 is expected).
 - Email (`email/send`) always sends from `notifications@updates.app.space`, whatever `from` you pass (D40).
 - Storage: the account shows 1.0 GiB for app files (docs claim 128 MiB on free). Keep demo videos small.
 - File uploads return 401 locally until the app has been deployed once (it has been).
