@@ -6,13 +6,13 @@ export default function NotFound() {
     <div className="flex min-h-screen flex-col items-center justify-center text-center px-4">
       <title>{`Not found · ${APP_NAME}`}</title>
       <meta name="robots" content="noindex" />
-      <h1 className="text-4xl font-bold text-foreground mb-2">404</h1>
-      <p className="text-muted-foreground mb-6">Page not found</p>
+      <h1 className="font-display mb-2 text-7xl font-extrabold italic text-primary">404</h1>
+      <p className="mb-6 text-muted-foreground">Out of bounds. That page doesn't exist.</p>
       <Link
         to="/home"
-        className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 transition-opacity"
+        className="rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase text-primary-foreground hover:opacity-90 transition-opacity"
       >
-        Go home
+        Back to the arena
       </Link>
     </div>
   )

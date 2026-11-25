@@ -47,6 +47,8 @@ export const usernamesSchema: CollectionSchema = {
 export const battlesSchema: CollectionSchema = {
   name: 'battles',
   columns: [
+    /** Same as the record id. Client `where` filters only match data columns. */
+    { name: 'battleId', storage: 'text', interpretation: 'plain', required: true, immutable: true },
     { name: 'playerA', storage: 'text', interpretation: 'plain', required: true, immutable: true },
     { name: 'playerB', storage: 'text', interpretation: 'plain', required: true, immutable: true },
     { name: 'modeId', storage: 'text', interpretation: 'plain', required: true, immutable: true },

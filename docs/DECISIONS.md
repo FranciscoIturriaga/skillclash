@@ -211,3 +211,40 @@ Decisions made during setup without the product owner present. Each entry record
 #### D32. Test accounts not created by the agent
 
 - **Decided:** Creating the three `@deepspace.test` accounts for the multi-user test was blocked by the session's permission rules, so the owner has to create them (commands in PROJECT_NOTES.md). The spec skips itself when fewer than 3 usable accounts exist.
+
+## Phase 3: UI
+
+### D33. `battleId` column on battles
+- **What:** battles carry a `battleId` column equal to the record id.
+- **Why:** client `useQuery` `where` only matches data columns, not the record id, so the battle page couldn't subscribe to one battle without it.
+- **Alternatives:** query all battles and filter on the client (doesn't scale, leaks nothing but wastes bandwidth).
+
+### D34. Own visual identity
+- **What:** one dark "arena" theme (near-black, acid-lime accent `#c8ff2e`, cyan for the challenger, pink for the opponent), Barlow Condensed for display type and Inter for body text, loaded from Google Fonts. The scaffold's paper theme was removed.
+- **Why:** the brief asks for a sporty match-screen feel; corner colours make "who is who" readable at a glance.
+- **Alternatives:** keep the theme switcher with several themes (more surface to test, no product value now).
+
+### D35. Write controls gated on data readiness, not `useMutations().ready`
+- **What:** buttons that write are disabled until the page's `useQuery` is `ready` and the user is signed in.
+- **Why:** every write is an HTTP server action (`/api/actions/*`), not a record mutation, so `useMutations().ready` doesn't describe whether a write can succeed. Readiness of the data the button acts on does.
+- **Alternatives:** also wait for `useMutations().ready` (it would add a dependency on the WebSocket that the action doesn't need).
+
+### D36. Pages nudge the server when a countdown hits zero
+- **What:** when a submit or vote countdown expires, a signed-in viewer's page calls `syncBattle` (after 1.5 s, or 3.5 s for votes to clear the settle grace).
+- **Why:** the cron runs once a minute; without the nudge a viewer would stare at 0:00 for up to a minute. `advance` is idempotent, so many viewers calling it at once is safe (losers get a conflict and re-read).
+- **Alternatives:** wait for the cron only (slow), or let anonymous viewers trigger it too (actions require a signed-in caller).
+
+### D37. Username directory loaded once per session
+- **What:** `UsernamesProvider` subscribes to the public `usernames` collection once and maps id ↔ name for every page. Opponent search filters it on the client. `UsernameGate` shows the "pick your tag" screen to a signed-in user with no username.
+- **Why:** usernames are small and public; one subscription is cheaper and simpler than a lookup per card.
+- **Alternatives:** a search server action (needed once there are many thousands of players).
+
+### D38. Vote status via `myVote`
+- **What:** whether the viewer already voted comes from the `myVote` action, not a client query.
+- **Why:** votes are `read: 'own'`, but keeping the client off the votes collection entirely is simpler to reason about; the action already exists.
+- **Alternatives:** `useQuery('votes', { where: { roundId, voterId: me } })`.
+
+### D39. Your own submitted video is shown back to you
+- **What:** after submitting, the player sees their own video under "Submitted. Hidden from everyone until the round ends."
+- **Why:** reassurance that the upload worked; the RBAC rule already lets the uploader read their own row.
+- **Alternatives:** show only a checkmark.

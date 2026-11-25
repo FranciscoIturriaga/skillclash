@@ -69,6 +69,7 @@ export function toActionResult<T>(o: Outcome<T>): ActionResult<T> {
 // ─── Row shapes ─────────────────────────────────────────────────────────────
 
 export interface BattleRow {
+  battleId: string
   playerA: string
   playerB: string
   modeId: string
@@ -111,7 +112,7 @@ export function submissionId(battleId: string, round: number, side: Side): strin
 }
 
 /** The mirror columns the feed filters on, derived from the state. */
-export function rowFromState(state: BattleState): Omit<BattleRow, 'playerA' | 'playerB' | 'modeId'> {
+export function rowFromState(state: BattleState): Omit<BattleRow, 'battleId' | 'playerA' | 'playerB' | 'modeId'> {
   const round = currentRoundState(state)
   const nextDeadline =
     round?.phase === 'submit' ? round.submitDeadline : round?.phase === 'vote' ? round.voteDeadline : null

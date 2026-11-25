@@ -23,6 +23,7 @@ import Navigation from '../../components/Navigation'
 import { useToast } from '@/components/ui'
 import { APP_NAME, SCOPE_ID } from '../../constants'
 import { schemas } from '../../schemas'
+import { UsernamesProvider, UsernameGate } from '../../components/game/usernames'
 
 export default function AppLayout() {
   return (
@@ -74,7 +75,10 @@ function AuthBoot({ children }: { children: ReactNode }) {
     >
       <RecordScope roomId={SCOPE_ID} schemas={schemas}>
         <AgentTools />
-        {children}
+        {/* Username directory for the whole app; the gate asks a new player to pick one. */}
+        <UsernamesProvider>
+          <UsernameGate>{children}</UsernameGate>
+        </UsernamesProvider>
       </RecordScope>
     </RecordProvider>
   )

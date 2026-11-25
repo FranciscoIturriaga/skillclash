@@ -59,7 +59,7 @@ export default function Navigation() {
         aria-current={active ? 'page' : undefined}
         className={cn(
           'px-3 py-1.5 text-sm',
-          active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+          active ? 'font-semibold text-primary' : 'text-muted-foreground hover:text-foreground',
         )}
       >
         {item.label}
@@ -71,8 +71,8 @@ export default function Navigation() {
     <>
       <nav data-testid="app-navigation" className="border-b border-border bg-background">
         <div className="mx-auto flex h-12 max-w-7xl items-center gap-4 px-4">
-          <Link to="/home" className="text-sm font-semibold text-foreground">
-            {APP_NAME}
+          <Link to="/home" className="font-display text-lg font-extrabold uppercase italic tracking-wide text-foreground" aria-label={APP_NAME}>
+            Skill<span className="text-primary">Clash</span>
           </Link>
 
           <div className="hidden items-center md:flex">{visibleNav.map(navLink)}</div>

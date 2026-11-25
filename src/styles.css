@@ -17,27 +17,32 @@
  * they stay consistent across every preset.
  */
 @theme {
-  /* shadcn core tokens — slate (default): neutral gray on near-black, indigo accent */
-  --color-background: #0a0a0a;
-  --color-foreground: #e8eaed;
-  --color-card: #161616;
-  --color-card-foreground: #e8eaed;
-  --color-popover: #161616;
-  --color-popover-foreground: #e8eaed;
-  --color-primary: #818cf8;
-  --color-primary-foreground: #ffffff;
-  --color-secondary: #1e1e1e;
-  --color-secondary-foreground: #e8eaed;
-  --color-muted: #1e1e1e;
-  --color-muted-foreground: #9ca3af;
-  --color-accent: #262626;
-  --color-accent-foreground: #e8eaed;
-  --color-destructive: #ef4444;
+  /* SkillClash "arena" theme: near-black stage, volt-lime accent, and one
+     color per corner (A = cyan, B = hot pink), like a match broadcast. */
+  --color-background: #07080a;
+  --color-foreground: #f2f4f7;
+  --color-card: #101216;
+  --color-card-foreground: #f2f4f7;
+  --color-popover: #14171c;
+  --color-popover-foreground: #f2f4f7;
+  --color-primary: #c8ff2e;
+  --color-primary-foreground: #0a0b0d;
+  --color-secondary: #191c22;
+  --color-secondary-foreground: #f2f4f7;
+  --color-muted: #191c22;
+  --color-muted-foreground: #8b93a1;
+  --color-accent: #20242b;
+  --color-accent-foreground: #f2f4f7;
+  --color-destructive: #ff4d4f;
   --color-destructive-foreground: #ffffff;
-  --color-border: rgba(60, 64, 67, 0.6);
-  --color-input: rgba(60, 64, 67, 0.6);
-  --color-ring: #818cf8;
-  --radius: 0.5rem;
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-input: rgba(255, 255, 255, 0.12);
+  --color-ring: #c8ff2e;
+  --color-side-a: #2dd4ff;
+  --color-side-b: #ff3d71;
+  --font-display: 'Barlow Condensed', 'Arial Narrow', system-ui, sans-serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --radius: 0.75rem;
 
   /*
    * Map the rounded-* utilities onto --radius so a theme (or you) can change
@@ -88,8 +93,8 @@
      simply doesn't reference them. In every theme keep the panel reading as
      elevated: dark → panel lighter than shell; light → white panel on a
      faintly darker shell. */
-  --color-shell: #0a0a0a;
-  --color-shell-panel: #161616;
+  --color-shell: #07080a;
+  --color-shell-panel: #101216;
 
   /* Animations */
   --animate-pulse-glow: pulse-glow 2s ease-in-out infinite;
@@ -164,7 +169,7 @@
   }
 
   body {
-    font-family: 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: var(--font-sans);
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -231,4 +236,31 @@
   a, button, [role="button"], input, select, textarea {
     touch-action: manipulation;
   }
+}
+
+/* ── SkillClash game styling ─────────────────────────────────────────── */
+
+/* Big condensed numerals and headings, like a scoreboard. */
+@utility font-display {
+  font-family: var(--font-display);
+  letter-spacing: 0.01em;
+}
+
+/* Diagonal "versus" stripe used behind match headers. */
+@utility bg-arena {
+  background:
+    radial-gradient(120% 80% at 0% 0%, color-mix(in oklab, var(--color-side-a) 18%, transparent), transparent 55%),
+    radial-gradient(120% 80% at 100% 0%, color-mix(in oklab, var(--color-side-b) 18%, transparent), transparent 55%),
+    var(--color-card);
+}
+
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+@utility animate-live {
+  animation: live-pulse 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-live { animation: none; }
 }

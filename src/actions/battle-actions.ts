@@ -45,6 +45,12 @@ function isDuplicate(r: ActionResult<unknown>): boolean {
   return !r.success && /duplicate/i.test(r.error)
 }
 
+/** URL-safe random id, e.g. `b7f3k2...` (16 chars). */
+function newBattleId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(12))
+  return 'b' + Array.from(bytes, (b) => (b % 36).toString(36)).join('') + Date.now().toString(36).slice(-3)
+}
+
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -113,14 +119,19 @@ const challenge: ActionHandler<Env> = async (ctx) => {
   if (!created.ok) return toActionResult(err(created.error.code, created.error.message))
   const state = created.state
 
-  const row = await ctx.tools.create('battles', {
-    playerA: state.playerA,
-    playerB: state.playerB,
-    modeId: state.modeId,
-    ...rowFromState(state),
-  })
+  const battleId = newBattleId()
+  const row = await ctx.tools.create(
+    'battles',
+    {
+      battleId,
+      playerA: state.playerA,
+      playerB: state.playerB,
+      modeId: state.modeId,
+      ...rowFromState(state),
+    },
+    battleId,
+  )
   if (!row.success) return toActionResult(err('storage_error', row.error))
-  const battleId = row.data.recordId
 
   for (const n of [1, 2, 3]) {
     await ctx.tools.create('rounds', { battleId, number: n, totalVotes: 0 }, roundId(battleId, n))
