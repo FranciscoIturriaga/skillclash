@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createBattle, transition, type BattleAction, type BattleState, type MachineResult } from './machine'
-import { activeDeadline, bucketFor, formatCountdown, profileStats, runningScore, statusLabel } from './view'
+import { activeDeadline, bucketFor, formatCountdown, profileStats, roundDisplayOrder, runningScore, statusLabel } from './view'
 
 const A = 'user_a'
 const B = 'user_b'
@@ -70,5 +70,19 @@ describe('view helpers', () => {
     expect(formatCountdown(245_000)).toBe('4:05')
     expect(formatCountdown(12 * 3600_000 - 57_000)).toBe('11:59:03')
     expect(formatCountdown(-5)).toBe('0:00')
+  })
+
+  it('orders rounds: current first, past newest first (collapsed), then locked', () => {
+    const order = (st: BattleState) => roundDisplayOrder(st).map((x) => `${x.round.number}${x.collapsible ? 'c' : ''}`)
+    expect(order(invited())).toEqual(['1', '2', '3'])
+    expect(order(active())).toEqual(['1', '2', '3'])
+    const r2 = playRound(active(), 1, 0)
+    expect(r2.currentRound).toBe(2)
+    expect(order(r2)).toEqual(['2', '1c', '3'])
+    const r3 = playRound(r2, 0, 0)
+    expect(order(r3)).toEqual(['3', '2c', '1c'])
+    const done = playRound(r3, 0, 0)
+    expect(done.status).toBe('complete')
+    expect(order(done)).toEqual(['3c', '2c', '1c'])
   })
 })

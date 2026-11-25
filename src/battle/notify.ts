@@ -66,7 +66,13 @@ async function send(
   else console.error(`[email] ${tag} failed: ${r.code ?? ''} ${r.error}`)
 }
 
+/** Test-mode battles send no email: no credits spent, no mail to fake test addresses (D48). */
+export function emailsEnabledFor(state: Pick<BattleState, 'modeId'>): boolean {
+  return state.modeId !== 'test'
+}
+
 export async function notifyChallenged(env: Env, tools: ActionTools, battleId: string, state: BattleState): Promise<void> {
+  if (!emailsEnabledFor(state)) return console.log(`[email] challenged ${battleId} skipped (test mode)`)
   try {
     const [challenger, opponent] = await Promise.all([person(tools, state.playerA), person(tools, state.playerB)])
     if (!opponent.email) return console.warn(`[email] challenged ${battleId}: opponent has no email`)
@@ -90,6 +96,7 @@ export async function notifyChallenged(env: Env, tools: ActionTools, battleId: s
 async function notifyResult(env: Env, tools: ActionTools, battleId: string, state: BattleState): Promise<void> {
   const result = state.result
   if (!result) return
+  if (!emailsEnabledFor(state)) return console.log(`[email] result ${battleId} skipped (test mode)`)
   const people: Record<Side, Person> = {
     a: await person(tools, state.playerA),
     b: await person(tools, state.playerB),

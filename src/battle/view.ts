@@ -139,3 +139,26 @@ export function profileStats(battles: BattleState[], userId: string): ProfileSta
 export function otherSide(side: Side): Side {
   return side === 'a' ? 'b' : 'a'
 }
+
+export interface RoundSlot {
+  round: RoundState
+  /** Past rounds start collapsed; the current and locked rounds don't collapse. */
+  collapsible: boolean
+}
+
+/**
+ * Battle page order, the same for players and voters (D46): the current round
+ * first, then past rounds newest first (collapsed), then rounds not reached
+ * yet. A finished battle has no current round, so it is 3, 2, 1.
+ */
+export function roundDisplayOrder(state: BattleState): RoundSlot[] {
+  const current = state.status === 'active' ? currentRoundState(state) : null
+  const others = state.rounds.filter((r) => r !== current)
+  const past = others.filter((r) => r.phase === 'closed').sort((x, y) => y.number - x.number)
+  const later = others.filter((r) => r.phase !== 'closed').sort((x, y) => x.number - y.number)
+  return [
+    ...(current ? [{ round: current, collapsible: false }] : []),
+    ...past.map((round) => ({ round, collapsible: true })),
+    ...later.map((round) => ({ round, collapsible: false })),
+  ]
+}

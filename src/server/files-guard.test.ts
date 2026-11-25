@@ -8,15 +8,41 @@ const base: FilesRequest = {
   key: null,
   userId: 'u1',
   ownerId: 'owner',
+  appId: 'app_X',
 }
 const ok = (r: Partial<FilesRequest>) => expect(guardAppFiles({ ...base, ...r }).ok).toBe(true)
 const no = (r: Partial<FilesRequest>) => expect(guardAppFiles({ ...base, ...r }).ok).toBe(false)
 
 describe('guardAppFiles', () => {
-  it('lets anyone read a single app file, even signed out', () => {
-    ok({})
-    ok({ userId: null })
-    ok({ method: 'HEAD' })
+  it('lets the uploader read their own video before reveal, with no lookup', () => {
+    const path = '/apps/app_X/videos/u1/abcdefghijklmnop.mp4'
+    expect(guardAppFiles({ ...base, subPath: path })).toEqual({ ok: true })
+    expect(guardAppFiles({ ...base, subPath: path, method: 'HEAD' })).toEqual({ ok: true })
+  })
+  it('makes opponents, voters, signed-out viewers and the owner pass a reveal lookup', () => {
+    const path = '/apps/app_X/videos/u1/abcdefghijklmnop.mp4'
+    const rel = 'videos/u1/abcdefghijklmnop.mp4'
+    for (const userId of ['u2', 'voter', 'owner', null]) {
+      expect(guardAppFiles({ ...base, subPath: path, userId })).toEqual({ ok: true, revealCheck: rel })
+    }
+    // Without the apps/<id> prefix (the platform refuses that path anyway).
+    expect(guardAppFiles({ ...base, userId: 'u2' })).toEqual({ ok: true, revealCheck: rel })
+    // Encoded paths decode to the same key.
+    expect(guardAppFiles({ ...base, subPath: '/apps/app_X/videos/u1/abcdefghijklmnop%2Emp4', userId: 'u2' })).toEqual({
+      ok: true,
+      revealCheck: rel,
+    })
+  })
+  it('refuses traversal and undecodable paths', () => {
+    no({ subPath: '/apps/app_X/videos/u1/../u2/abcdefghijklmnop.mp4' })
+    no({ subPath: '/apps/app_X/videos/u1/%2e%2e/u2/x.mp4' })
+    no({ subPath: '/apps/app_X/videos/u1/%E0%A4%A' })
+  })
+  it("doesn't treat another user's folder as the caller's own", () => {
+    expect(guardAppFiles({ ...base, subPath: '/apps/app_X/videos/u2/abcdefghijklmnop.mp4' })).toEqual({
+      ok: true,
+      revealCheck: 'videos/u2/abcdefghijklmnop.mp4',
+    })
   })
   it('blocks listing for non-owners', () => {
     no({ subPath: '' })

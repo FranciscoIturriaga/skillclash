@@ -31,6 +31,7 @@ import {
 import type { ExpoAuthBridgeOptions, JwtVerifierConfig, VerifyResult } from 'deepspace/worker'
 import { integrations } from '../integrations.js'
 import { guardAppFiles } from './files-guard.js'
+import { createActionTools } from './action-routes.js'
 import type { AppContext, Env } from '../../worker.js'
 
 function jwtConfig(env: Env): JwtVerifierConfig {
@@ -285,6 +286,27 @@ export function registerAuthAndIntegrationRoutes(app: Hono<AppContext>): void {
   })
 }
 
+/**
+ * Revealed-video lookup for the files proxy (D44). A reveal never goes back,
+ * so a positive answer is cached for the isolate's life; a video player makes
+ * many Range requests for one file.
+ */
+const revealedKeys = new Set<string>()
+async function isRevealedVideo(env: Env, relKey: string): Promise<boolean> {
+  if (revealedKeys.has(relKey)) return true
+  const tools = createActionTools(env, env.OWNER_USER_ID, '')
+  const r = await tools.query('submissions', {
+    where: { fileKey: relKey, revealed: 'yes' },
+    limit: 1,
+  } as Parameters<typeof tools.query>[1])
+  const found = r.success && r.data.records.length > 0
+  if (found) {
+    if (revealedKeys.size > 5000) revealedKeys.clear()
+    revealedKeys.add(relKey)
+  }
+  return found
+}
+
 /** Register scoped-file and authenticated browser-to-platform proxies. */
 export function registerPlatformProxyRoutes(app: Hono<AppContext>): void {
   // Scoped R2 files → platform-worker. The app has no local R2 binding; the
@@ -306,8 +328,13 @@ export function registerPlatformProxyRoutes(app: Hono<AppContext>): void {
       key: url.searchParams.get('key'),
       userId,
       ownerId: c.env.OWNER_USER_ID,
+      appId: c.env.DEEPSPACE_APP_ID,
     })
     if (!guard.ok) return c.json({ success: false, error: guard.error }, guard.status)
+    if (guard.revealCheck && !(await isRevealedVideo(c.env, guard.revealCheck))) {
+      // Same answer whether the file exists or not: don't confirm a key.
+      return c.json({ success: false, error: 'Video not available.' }, 404)
+    }
 
     const platformUrl = new URL(c.req.url)
     platformUrl.pathname = url.pathname.replace('/api/files', '/internal/files')

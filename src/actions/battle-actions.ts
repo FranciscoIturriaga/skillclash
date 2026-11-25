@@ -21,6 +21,8 @@ import {
 import {
   advance,
   asRound,
+  battlesBetween,
+  findOpenBattle,
   countVotes,
   err,
   loadBattle,
@@ -105,6 +107,20 @@ const challenge: ActionHandler<Env> = async (ctx) => {
     return toActionResult(err('not_found', `No player called @${opponentName}.`))
   }
   const opponentId = found.data.records[0].data.userId
+
+  // One open (invited or active) battle per pair, either direction (D47).
+  // Self-challenges fall through to createBattle's own refusal.
+  if (opponentId !== ctx.userId) {
+    let between
+    try {
+      between = await battlesBetween(ctx.tools, ctx.userId, opponentId)
+    } catch (e) {
+      return toActionResult(err('storage_error', e instanceof Error ? e.message : String(e)))
+    }
+    if (findOpenBattle(between, ctx.userId, opponentId)) {
+      return toActionResult(err('open_battle_exists', `You already have an open battle with @${opponentName}.`))
+    }
+  }
 
   const now = Date.now()
   const created = createBattle(

@@ -13,11 +13,11 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { AuthOverlay, useAuth, useQuery } from 'deepspace'
-import { Check, Clock, EyeOff, Lock, Trophy, Vote, X } from 'lucide-react'
+import { Check, ChevronDown, Clock, EyeOff, Lock, Trophy, Vote, X } from 'lucide-react'
 import { Button, EmptyState, Input, cn, useToast } from '@/components/ui'
 import { currentRoundState, roundPoints, sideOf, type BattleState, type RoundState, type Side } from '../../../battle/machine'
 import { getMode } from '../../../battle/modes'
-import { runningScore, statusLabel, type BattleRowData, type SubmissionData } from '../../../battle/view'
+import { roundDisplayOrder, runningScore, statusLabel, type BattleRowData, type SubmissionData } from '../../../battle/view'
 import { callAction } from '../../../lib/api'
 import { Countdown, LiveDot, Panel, PlayerTag, sideBorder, sideText } from '../../../components/game/bits'
 import { VideoPlayer, VideoUploader } from '../../../components/game/VideoUploader'
@@ -81,12 +81,13 @@ export default function BattlePage() {
       {state.status === 'complete' && state.result && <ResultPanel state={state} />}
 
       {state.status !== 'declined' &&
-        state.rounds.map((round) => (
+        roundDisplayOrder(state).map(({ round, collapsible }) => (
           <RoundPanel
             key={round.number}
             battleId={id}
             state={state}
             round={round}
+            collapsible={collapsible}
             mySide={mySide}
             totalVotes={totals.get(round.number) ?? 0}
             subA={subs.get(`${round.number}_a`)}
@@ -235,6 +236,7 @@ function RoundPanel({
   battleId,
   state,
   round,
+  collapsible,
   mySide,
   totalVotes,
   subA,
@@ -246,6 +248,8 @@ function RoundPanel({
   battleId: string
   state: BattleState
   round: RoundState
+  /** Past round: starts collapsed to a one-line result (D46). */
+  collapsible: boolean
   mySide: Side | null
   totalVotes: number
   subA?: SubmissionData
@@ -258,10 +262,8 @@ function RoundPanel({
   const skillLine =
     round.number === 3 ? 'Freestyle: each player picks their own skill' : round.skill ?? 'Picked when the challenge is accepted'
 
-  return (
-    <Panel className={cn('overflow-hidden', isCurrent && 'border-primary/50')}>
-      <section data-testid={`round-${round.number}`} aria-label={`Round ${round.number}`}>
-        <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
+  const header = (
+        <div className={cn('flex items-start justify-between gap-3 px-5 py-4', !collapsible && 'border-b border-border')}>
           <div className="min-w-0">
             <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-muted-foreground">Round {round.number}</p>
             <p className="mt-0.5 font-semibold">{skillLine}</p>
@@ -282,9 +284,14 @@ function RoundPanel({
             {round.phase === 'vote' && round.voteDeadline && (
               <Countdown at={round.voteDeadline} label="Voting closes in" onExpire={() => onDeadline(3500)} />
             )}
+            {collapsible && (
+              <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden />
+            )}
           </div>
         </div>
+  )
 
+  const body = (
         <div className="p-5">
           {round.phase === 'pending' && (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -308,8 +315,57 @@ function RoundPanel({
             />
           )}
         </div>
+  )
+
+  return (
+    <Panel className={cn('overflow-hidden', isCurrent && 'border-primary/50')}>
+      <section data-testid={`round-${round.number}`} aria-label={`Round ${round.number}`}>
+        {collapsible ? (
+          <details className="group">
+            <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden" data-testid={`round-${round.number}-toggle`}>
+              {header}
+              <RoundSummary state={state} round={round} />
+            </summary>
+            <div className="border-t border-border">{body}</div>
+          </details>
+        ) : (
+          <>
+            {header}
+            {body}
+          </>
+        )}
       </section>
     </Panel>
+  )
+}
+
+/** One-line result for a collapsed past round: each player's votes and points. */
+function RoundSummary({ state, round }: { state: BattleState; round: RoundState }) {
+  const o = round.outcome
+  if (!o) return null
+  const pts = roundPoints(o)
+  const players = { a: state.playerA, b: state.playerB }
+  return (
+    <div className="grid grid-cols-2 gap-3 px-5 pb-4 text-sm" data-testid={`round-${round.number}-summary`}>
+      {(['a', 'b'] as const).map((side) => {
+        const won = o.kind !== 'both_missed' && o.winner === side
+        const detail =
+          o.kind === 'votes'
+            ? `${side === 'a' ? o.votesA : o.votesB} ${(side === 'a' ? o.votesA : o.votesB) === 1 ? 'vote' : 'votes'}`
+            : o.kind === 'forfeit'
+              ? won ? 'won by forfeit' : 'missed'
+              : 'missed'
+        return (
+          <div key={side} className={cn('rounded-lg border-l-4 bg-background px-3 py-1.5', sideBorder[side])}>
+            <PlayerTag userId={players[side]} side={side} link={false} className="block text-sm" />
+            <p className="text-xs text-muted-foreground">
+              {won && <Trophy className="mr-1 inline size-3 text-primary" aria-label="Round winner" />}
+              {detail} · <span className={cn('font-semibold', sideText[side])}>+{pts[side]} pts</span>
+            </p>
+          </div>
+        )
+      })}
+    </div>
   )
 }
 

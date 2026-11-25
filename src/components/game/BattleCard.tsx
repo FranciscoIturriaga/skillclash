@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { BattleState } from '../../battle/machine'
+import { currentRoundState, type BattleState } from '../../battle/machine'
 import { activeDeadline, runningScore, statusLabel, roundLabel } from '../../battle/view'
 import { Countdown, LiveDot, PlayerTag } from './bits'
 
@@ -21,7 +21,8 @@ export function BattleCard({
   const score = state.result ? state.result.total : runningScore(state)
   const showScore = state.status === 'active' || state.status === 'complete'
   const voting = deadline?.kind === 'vote'
-  const r1 = state.rounds[0]
+  // The round being played or voted on right now; round 1 before the battle starts.
+  const shownRound = currentRoundState(state) ?? state.rounds[0]
 
   return (
     <Link
@@ -61,7 +62,7 @@ export function BattleCard({
       </div>
 
       <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
-        <span className="truncate">{roundLabel(r1)}{state.modeId === 'test' ? ' · test mode' : ''}</span>
+        <span className="truncate">{roundLabel(shownRound)}{state.modeId === 'test' ? ' · test mode' : ''}</span>
         <ChevronRight className="size-4 shrink-0 transition-transform group-hover:translate-x-0.5" aria-hidden />
       </div>
     </Link>

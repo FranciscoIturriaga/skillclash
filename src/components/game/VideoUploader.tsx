@@ -12,6 +12,7 @@ import { useAuth, useR2Files } from 'deepspace'
 import { Upload, Video } from 'lucide-react'
 import { Button, Input } from '@/components/ui'
 import { callAction } from '../../lib/api'
+import { APP_ID } from '../../constants'
 
 export const MAX_VIDEO_BYTES = 50 * 1024 * 1024
 export const MAX_VIDEO_SECONDS = 20
@@ -190,6 +191,16 @@ export function VideoUploader({
   )
 }
 
+/**
+ * Submissions store the scope-relative key (`videos/<uid>/<file>`), which is
+ * what upload/list take. `getUrl` needs the full stored key
+ * (`apps/<appId>/videos/...`); the relative one gets a 403 "key outside
+ * scope" from the platform and a blank player (D43).
+ */
+export function fullFileKey(fileKey: string, appId: string = APP_ID): string {
+  return fileKey.startsWith('apps/') ? fileKey : `apps/${appId}/${fileKey}`
+}
+
 export function VideoPlayer({ fileKey, label }: { fileKey: string; label: string }) {
   const { getUrl } = useR2Files({ scope: 'app' })
   return (
@@ -198,7 +209,7 @@ export function VideoPlayer({ fileKey, label }: { fileKey: string; label: string
       playsInline
       preload="metadata"
       aria-label={label}
-      src={getUrl(fileKey)}
+      src={getUrl(fullFileKey(fileKey))}
       className="aspect-[9/16] max-h-[60vh] w-full rounded-xl bg-black object-contain"
     />
   )

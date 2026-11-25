@@ -47,6 +47,7 @@ export type ServiceErrorCode =
   | 'voting_closed'
   | 'username_taken'
   | 'no_username'
+  | 'open_battle_exists'
 
 export interface ServiceError {
   code: ServiceErrorCode
@@ -344,4 +345,33 @@ async function safeHook(hook: EventHook, battleId: string, state: BattleState, e
 
 export function asRound(n: unknown): RoundNumber | null {
   return n === 1 || n === 2 || n === 3 ? n : null
+}
+
+// ─── One open battle per pair (D47) ─────────────────────────────────────────
+
+/** Statuses that count as "open": a pair may have only one battle in them. */
+export const OPEN_STATUSES: ReadonlyArray<BattleRow['status']> = ['invited', 'active']
+
+/** The first open battle between x and y (either direction), or null. Pure. */
+export function findOpenBattle<R extends { playerA: string; playerB: string; status: string }>(
+  rows: ReadonlyArray<{ recordId: string; data: R }>,
+  x: string,
+  y: string,
+): { recordId: string; data: R } | null {
+  return (
+    rows.find(
+      (r) =>
+        OPEN_STATUSES.includes(r.data.status as BattleRow['status']) &&
+        ((r.data.playerA === x && r.data.playerB === y) || (r.data.playerA === y && r.data.playerB === x)),
+    ) ?? null
+  )
+}
+
+/** Battles between x and y in either direction (two equality queries). */
+export async function battlesBetween(tools: ActionTools, x: string, y: string) {
+  const [ab, ba] = await Promise.all([
+    queryAll<BattleRow & Record<string, unknown>>(tools, 'battles', { playerA: x, playerB: y }),
+    queryAll<BattleRow & Record<string, unknown>>(tools, 'battles', { playerA: y, playerB: x }),
+  ])
+  return [...ab, ...ba]
 }

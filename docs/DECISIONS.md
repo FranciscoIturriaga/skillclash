@@ -278,3 +278,39 @@ First `npx deepspace test run all` with accounts: 9 passed, 3 failed (the battle
 - **Spec waits for the picker or the home page's "New challenge" button**, which only renders once the gate has decided, instead of the nav.
 - **Cost note:** each run of the battle spec sends real emails through `email/send` (1 challenge + 2 results ≈ $0.04) to the `@deepspace.test` addresses.
 After the fixes: 12 passed, 0 failed, 0 skipped; 47 unit tests pass.
+
+## Phase 6: pre-deadline fixes (2026-11-25)
+
+### D43. Video player URLs use the full stored key (root cause of blank videos)
+- **Symptom:** revealed videos showed a blank player at 0:00 on the live site, for a Photo Booth .mov and an iPhone .mov alike.
+- **Diagnosis (live, before the fix):** the `<video>` src was `/api/files/videos/<uid>/<file>.mov?scope=app`. Requesting it the way the tag does (same-origin, session cookie, no bearer) returned **403 `application/json` `{"error":"Access denied: key outside scope"}`**, with or without `Range`. The 403 came from the platform, not from our guard. The same file at `/api/files/apps/<appId>/videos/...` returned 200 `video/quicktime`, `Accept-Ranges: bytes`; with `Range: bytes=0-` it returned **206** with `Content-Range: bytes 0-14686103/14686104`. So the proxy already passes Range through and keeps the headers.
+- **Cause:** submissions store `upload().relativeKey` (`videos/...`, the form `upload({key})` and `list` take), but `getUrl()` needs the full stored `key` (`apps/<appId>/videos/...`). The docs say so (files reference: "`key`: what download, delete and getUrl take; `relativeKey`: what upload({ key }) and list take").
+- **Fix:** `VideoPlayer` builds the URL from `fullFileKey(fileKey)`, which adds `apps/<APP_ID>/` when missing. Stored rows keep the relative key (the server's key-shape check and existing data depend on it), so old submissions play without a migration.
+
+### D44. The files proxy only serves a video to its uploader until it's revealed
+- **Decided:** for a single-file GET/HEAD on `scope=app`, `guardAppFiles` lets the uploader (`videos/<their id>/…`) through. For anyone else, the app owner included, it returns `revealCheck`, and the route serves the file only if a submission with that exact `fileKey` has `revealed: 'yes'`. Otherwise it returns 404, the same answer whether the file exists or not. Positive lookups are cached per isolate (a reveal never goes back), so a player's many Range requests cost one query. Paths with `..`, backslashes or bad encoding are refused.
+- **Why:** before this, hiding a video depended only on the key staying secret (D14). The task asked that unrevealed videos be unavailable to everyone except the uploader, so the file read now checks that too. Revealed videos stay public, as battles are meant to be shared (D31).
+- **Tested:** `tests/battle.spec.ts` takes A's round 1 video URL from A's page before reveal: A gets 206, B and C get 404. After reveal, all three get 206. Unit tests cover the guard's decisions.
+- **Limit:** this covers reads through the app's `/api/files` proxy. If the platform serves `scope=app` files on another host, that path isn't covered; the key is still unguessable (24 random chars).
+
+### D45. Feed cards show the current round's skill
+- **Decided:** `BattleCard` labels a battle with the round being played or voted on (`currentRoundState`, which is "Freestyle" for round 3), falling back to round 1 before the battle starts.
+- **Was:** it always showed round 1's skill.
+
+### D46. Battle page round order: current, then past newest first
+- **Decided:** one rule for players and voters, in the pure `roundDisplayOrder` (view.ts, unit tested): the current round on top, expanded; then closed rounds newest first, collapsed (`<details>`) to a one-line summary of each player's votes/result and points; then rounds not reached yet. A finished battle shows the result panel, then rounds 3, 2, 1, all collapsed.
+- **Why `<details>`:** native, keyboard-accessible, no state to keep. Collapsed content stays in the DOM, so links and test ids inside still exist.
+
+### D47. One open battle per pair
+- **Decided:** `challenge` refuses with `open_battle_exists` and "You already have an open battle with @username." when the two players already have an `invited` or `active` battle in either direction. The check (`findOpenBattle`) is pure and unit tested. The spec checks both directions against the server.
+- **Known gap:** it's a read-then-write check, not a database constraint, so two challenges sent within milliseconds of each other could both pass. A unique "pair lock" row would close that but needs releasing on decline and completion. Not worth the risk before the deadline.
+- **Interaction:** a sent invite can't be cancelled by the challenger and never expires, so an ignored invite blocks the pair until the opponent declines or accepts. The battle spec now declines B's leftover invites before challenging.
+
+### D48. Test-mode battles send no email
+- **Decided:** `emailsEnabledFor(state)` is false for `modeId === 'test'`. Both the challenge email and the result emails are skipped, and the skip is logged (`[email] ... skipped (test mode)`).
+- **Why:** test runs were spending owner credits (about $0.04 per battle spec run) and mailing `@deepspace.test` addresses.
+
+### D49. iPhone video format: H.264, not HEVC. No HEVC fallback built
+- **Finding:** the live iPhone upload (`biBS3…mov`, iPhone 14) is H.264 (`avc1`) 1920×1080 with AAC audio, plus Apple metadata (`mebx`) tracks that browsers ignore. The Photo Booth upload is also H.264 (1620×1080). Both played as 403s because of D43, not because of their codec.
+- **Decided:** the requested fallback message and uploader hint were conditional on HEVC being the problem. It isn't, so neither was built (no scope added on deadline day).
+- **Known limitation:** an iPhone set to "High Efficiency" can record HEVC (`hvc1`), which desktop Chrome may not decode depending on OS and hardware. Such a video would show a blank player in that browser. Workaround: on iPhone, Settings > Camera > Formats > Most Compatible. No transcoding.
