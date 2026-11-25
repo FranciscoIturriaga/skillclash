@@ -391,6 +391,17 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
     expect(cardBox.y + cardBox.height).toBeLessThanOrEqual(size.height + 1)
     expect(Math.abs(video.width / video.height - 9 / 16)).toBeLessThan(0.02)
   }
+  // Tapping the "Voting now" heading smooth-scrolls the first card right under
+  // the top bar (D62).
+  await c.page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior }))
+  const jump = c.page.getByTestId('voting-now-jump')
+  await expect(jump).toHaveRole('button')
+  expect(await jump.evaluate((el) => getComputedStyle(el).cursor)).toBe('pointer')
+  await jump.click()
+  const barBottom = await c.page.getByTestId('app-header').evaluate((el) => el.getBoundingClientRect().bottom)
+  await expect
+    .poll(() => c.page.locator('[data-testid="voting-now-slot"]').first().evaluate((el) => Math.round(el.getBoundingClientRect().top)), { timeout: 5_000 })
+    .toBe(Math.round(barBottom))
   await c.page.setViewportSize(cViewport)
   // The feed vote counted: A's open battle page shows the live total.
   await expect(a.page.getByTestId('round-1').getByTestId('round-1-total-votes')).toContainText('1 vote', { timeout: 15_000 })

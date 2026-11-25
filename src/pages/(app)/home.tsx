@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useNavigationType } from 'react-router-dom'
 import { AuthOverlay, useAuth, useQuery } from 'deepspace'
-import { Flame, Swords, Trophy } from 'lucide-react'
+import { ChevronDown, Flame, Swords, Trophy } from 'lucide-react'
 import { Button, EmptyState, buttonVariants, cn } from '@/components/ui'
 import type { BattleRowData, MyBucket } from '../../battle/view'
 import { bucketFor, sortVotingNow } from '../../battle/view'
@@ -173,7 +173,28 @@ function VotingNow({ viewerId }: { viewerId: string | null }) {
   return (
     <section data-testid="voting-now" className={status === 'ready' && records.length > 0 ? '' : 'pb-16'}>
       <SectionTitle count={status === 'ready' ? records.length : undefined}>
-        <Flame className="size-5 text-destructive" aria-hidden /> Voting now
+        {status === 'ready' && records.length > 0 ? (
+          // Tapping the heading brings the first card under the top bar; the
+          // slot's scroll-margin-top supplies the header offset (D59, D62).
+          <button
+            type="button"
+            data-testid="voting-now-jump"
+            aria-label="Voting now: jump to the first battle"
+            onClick={() =>
+              document
+                .querySelector('[data-testid="voting-now-slot"]')
+                ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }
+            className="-mx-1 flex cursor-pointer items-center gap-2 rounded-md px-1 uppercase italic hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          >
+            <Flame className="size-5 text-destructive" aria-hidden /> Voting now
+            <ChevronDown className="size-5 text-muted-foreground" aria-hidden />
+          </button>
+        ) : (
+          <>
+            <Flame className="size-5 text-destructive" aria-hidden /> Voting now
+          </>
+        )}
       </SectionTitle>
       {status !== 'ready' ? (
         <SkeletonList />
