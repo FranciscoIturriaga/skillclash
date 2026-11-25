@@ -10,10 +10,11 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - **Set-and-match rules (D53, D54):** setters film first in rounds 1–2 (A with the challenge, B with the accept); blind invite; unrevealed skills live on hidden setter submission rows, not the public battle state. Old active battles finish under the old rules; old open invites can't be accepted.
 - `npx deepspace test run all --port 5181`: 14/14 pass (120 unit tests), including a short Rapid Fire battle, including `tests/battle.spec.ts` (3-user set-and-match battle with network-level leak checks and feed reel swipe/arrow/vote checks, ~1.6 min, plus a 375px layout check; and a cancel-invite test that re-challenges the pair). 
 - Test accounts (by name in the spec): "Player A" = fi-skillclash-a@deepspace.test, "Player B" = fi-skillclash-b@deepspace.test, "Voter C" = voter-c@deepspace.test (stored in `~/.deepspace/test-accounts.json`).
+- Demo battle route is deployed but the live demo is **not seeded** (secret `DEMO_SEED_TOKEN` not set yet; see Next steps).
 - Email delivery not yet confirmed in production logs (no real battle finished on prod). Test-mode battles send no email (D48).
 - **Latest deploy: cab6276 (2026-11-25), pushed to main**, live bundle verified: Rapid Fire mode, per-mode pair rule, mode badges, demo seed route (D63–D65). Earlier the same day: 1b4ff7f (Voting now heading jump), 294c7bc (window scrolling, camera inputs), 8349507, 045ced7, af741ed, dcaf8e9.
 - **Not yet checked by a person:** everything in Next steps marked "On a phone", the D55 fix on a fully reloaded tab, and video playback in desktop Chrome (D43).
-- Decisions D1–D60 in `docs/DECISIONS.md`.
+- Decisions D1–D65 in `docs/DECISIONS.md`.
 
 ## Recent changes
 - 2026-11-25: Rapid Fire mode (D63): 1 round, 5 min invite, 5 min to match, 15 min vote, no bonus; rounds/windows/bonus are mode config. Pair rule is per mode (D64). Owner-only seeded demo battle (D65, `scripts/seed-demo.sh`). Mode badge on cards and battle page.
@@ -62,7 +63,6 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - [ ] On a phone: expand a past round (videos only, no outline on tap), check "Expires in" on a new invite, and test Cancel challenge → Keep it / Yes, cancel, then re-challenge.
 - [ ] Open the battle with the Photo Booth and iPhone clips in desktop Chrome and confirm both play (D43).
 - [ ] Play one real battle on a phone; check `npx deepspace logs --search email` for `[email] ... sent`.
-- [ ] Demo mode with short windows and a seeded demo battle.
 - [ ] Cron doesn't repair a stuck `invited` battle (D25); the next action on it does.
 - [ ] Server trusts the client-reported video duration; consider a server-side check.
 - [ ] HEVC iPhone videos may not play in desktop Chrome; no fallback UI yet (D49).
