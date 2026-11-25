@@ -20,6 +20,7 @@ import { Outlet } from 'react-router-dom'
 import { DeepSpaceAuthProvider, useAuthStatus } from 'deepspace'
 import { RecordProvider, RecordScope, AgentTools } from 'deepspace'
 import Navigation from '../../components/Navigation'
+import { UpdateBanner } from '../../components/UpdateBanner'
 import { useToast } from '@/components/ui'
 import { APP_NAME, SCOPE_ID } from '../../constants'
 import { schemas } from '../../schemas'
@@ -34,6 +35,7 @@ export default function AppLayout() {
       <AuthBoot>
         <div className="flex h-screen flex-col bg-background overflow-hidden">
           <Navigation />
+          <UpdateBanner />
           <main className="flex-1 overflow-y-auto min-h-0">
             <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground">Loading...</div>}>
               {/* Inside <main> so the nav (and sign-out) stays usable while a

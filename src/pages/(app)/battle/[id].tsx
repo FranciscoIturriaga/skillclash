@@ -20,7 +20,7 @@ import { Check, ChevronDown, Clock, EyeOff, Lock, Trophy, Vote, X } from 'lucide
 import { Button, EmptyState, Input, cn, useToast } from '@/components/ui'
 import { currentRoundState, inviteDeadline, roundPoints, setterOf, sideOf, usesSetterRules, type BattleState, type RoundState, type Side } from '../../../battle/machine'
 import { getMode } from '../../../battle/modes'
-import { roundDisplayOrder, runningScore, statusLabel, type BattleRowData, type SubmissionData } from '../../../battle/view'
+import { lockedRoundCopy, roundDisplayOrder, runningScore, statusLabel, type BattleRowData, type SubmissionData } from '../../../battle/view'
 import { callAction } from '../../../lib/api'
 import { Countdown, ExpiresIn, LiveDot, Panel, PlayerTag, sideBorder, sideText } from '../../../components/game/bits'
 import { CancelChallenge } from '../../../components/game/CancelChallenge'
@@ -254,7 +254,9 @@ function InvitePanel({
           <p className="font-display text-2xl font-extrabold uppercase italic" data-testid="invite-headline">
             @{nameOf(state.playerA) ?? 'someone'} challenged you
           </p>
-          <p className="mt-1 text-sm text-muted-foreground">{modeLabel} mode. Their skill stays hidden until you accept.</p>
+          <p className="mt-1 text-sm text-muted-foreground" data-testid="invite-copy">
+            {modeLabel} mode. {legacy ? '' : "Accept by recording your round 2 skill. You'll see their skill when round 1 starts."}
+          </p>
           <ExpiresIn at={expiresAt} onExpire={onExpire} className="mt-1 text-xs text-muted-foreground" />
         </div>
         {legacy ? (
@@ -340,12 +342,43 @@ function RoundPanel({
   const isCurrent = state.currentRound === round.number && state.status === 'active'
   const setter = setterOf(state, round.number)
   const setterSub = setter === 'a' ? subA : setter === 'b' ? subB : undefined
+  const { nameOf } = useUsernames()
+
+  if (round.phase === 'pending') {
+    // Locked rounds are one compact row so the live panel stays the focus (D55).
+    const own = setter && mySide === setter ? setterSub : undefined
+    const names = { a: nameOf(state.playerA) ?? 'challenger', b: nameOf(state.playerB) ?? 'opponent' }
+    const copy = lockedRoundCopy(state, round.number, mySide, names, own?.skill)
+    return (
+      <Panel className="overflow-hidden">
+        <section data-testid={`round-${round.number}`} aria-label={`Round ${round.number}, locked`}>
+          <div className="flex items-center gap-3 px-4 py-2.5 text-sm">
+            <span className="font-display shrink-0 text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground">R{round.number}</span>
+            <p className="min-w-0 flex-1 truncate text-muted-foreground" data-testid={`round-${round.number}-skill`} title={copy}>
+              {copy}
+            </p>
+            <Lock className="size-4 shrink-0 text-muted-foreground" aria-label="Locked" data-testid={`round-${round.number}-phase`} />
+          </div>
+          {own?.fileKey && !(round.number === 1 && state.status === 'invited') && (
+            <details className="group border-t border-border" data-testid={`round-${round.number}-own-setter`}>
+              <summary className="cursor-pointer list-none px-4 py-2 text-xs font-semibold text-muted-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
+                Watch your skill video (hidden until this round opens)
+              </summary>
+              <div className="px-4 pb-4">
+                <VideoPlayer fileKey={own.fileKey} label={`Your round ${round.number} skill video`} />
+              </div>
+            </details>
+          )}
+        </section>
+      </Panel>
+    )
+  }
   // Before a round opens only its setter can read their own row, so this
   // shows the skill to the setter and "hidden" to everyone else (D53).
   const skillLine =
     round.number === 3
       ? 'Freestyle: each player picks their own skill'
-      : round.skill ?? setterSub?.skill ?? (setter ? 'Skill hidden until this round opens' : 'Picked when the challenge is accepted')
+      : round.skill ?? setterSub?.skill ?? 'Skill hidden'
 
   const header = (
         <div className={cn('flex items-start justify-between gap-3 px-5 py-4', !collapsible && 'border-b border-border')}>
@@ -378,20 +411,6 @@ function RoundPanel({
 
   const body = (
         <div className="p-5">
-          {round.phase === 'pending' && (
-            <div className="space-y-3">
-              <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Lock className="size-4" aria-hidden />{' '}
-                {round.number === 1 ? 'Opens when the challenge is accepted.' : `Unlocks when round ${round.number - 1} ends.`}
-              </p>
-              {setter && mySide === setter && setterSub?.fileKey && (
-                <div data-testid={`round-${round.number}-own-setter`}>
-                  <p className="mb-2 text-sm text-muted-foreground">Your skill video. Hidden from everyone until this round opens.</p>
-                  <VideoPlayer fileKey={setterSub.fileKey} label={`Your round ${round.number} skill video`} />
-                </div>
-              )}
-            </div>
-          )}
           {round.phase === 'submit' && (
             <SubmitPhase
               battleId={battleId}

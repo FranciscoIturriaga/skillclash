@@ -78,6 +78,9 @@ async function sendChallenge(page: Page, opponent: string, skill: string): Promi
   await page.getByLabel('Opponent').fill(opponent)
   await page.getByLabel('Round 1 skill').fill(skill)
   await expect(page.getByTestId('send-challenge')).toBeDisabled() // a video is required
+  const form = page.getByTestId('challenge-form')
+  await expect(form).toContainText('Show them the skill: record it now')
+  await expect(form.getByRole('button', { name: 'Record or choose a video' })).toBeVisible()
   await page.getByTestId('challenge-form').getByTestId('video-input').setInputFiles(CLIP)
   await page.getByTestId('send-challenge').click()
   await page.waitForURL(/\/battle\/[A-Za-z0-9]+$/, { timeout: 30_000 })
@@ -191,6 +194,18 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   await expect(b.page.getByTestId('invite-panel')).toContainText('Test (short windows) mode')
   await expect(b.page.getByTestId('invite-expires')).toContainText('Expires in')
   await expect(b.page.getByTestId('round-1-skill')).not.toContainText(SKILL1)
+  // The accept panel has a visible, working video recorder/uploader (D55).
+  const panel = b.page.getByTestId('invite-panel')
+  await expect(panel).toContainText('Show them the skill: record it now')
+  await expect(panel.getByRole('button', { name: 'Record or choose a video' })).toBeVisible()
+  await expect(panel).toContainText('Max 20 seconds and 50 MB. Record in 1080p')
+  await expect(panel.getByTestId('video-input')).toHaveAttribute('accept', 'video/*')
+  await expect(b.page.getByTestId('invite-copy')).toContainText("Accept by recording your round 2 skill. You'll see their skill when round 1 starts.")
+  // Locked rounds: one compact line each, worded for B, never "round 0".
+  await expect(b.page.getByTestId('round-1-skill')).toHaveText(`Set by @${nameA}. Revealed when you accept`)
+  await expect(b.page.getByTestId('round-2-skill')).toHaveText("You'll set this when accepting")
+  await expect(b.page.getByTestId('round-3-skill')).toHaveText('Freestyle. Opens after round 2')
+  await expect(b.page.locator('body')).not.toContainText(/round 0|round 1 skill/i)
   await c.page.goto(battleUrl)
   await expect(c.page.getByTestId('round-1-skill')).toBeVisible({ timeout: 20_000 })
   // Not in the page, and not anywhere in the network traffic or subscriptions.
@@ -215,7 +230,8 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   const sniffA = sniff(a.page)
   await a.page.goto(battleUrl)
   await b.page.getByLabel('Round 2 skill').fill(SKILL2)
-  await b.page.getByTestId('invite-panel').getByTestId('video-input').setInputFiles(CLIP)
+  await panel.getByTestId('video-input').setInputFiles(CLIP)
+  await expect(panel).toContainText('clip.webm') // picked: name, length and size shown
   await b.page.getByTestId('accept-challenge').click()
 
   // Round 1 opens: B now sees A's skill and video above their own upload.
@@ -228,10 +244,10 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   // Control: the sniffer does see a skill once it's public, so "not seen" above means something.
   await expect.poll(() => sniffB.saw(SKILL1), { timeout: 10_000 }).toBe(true)
   // B still sees their own round 2 skill and video; A and C see neither.
-  await expect(b.page.getByTestId('round-2-skill')).toHaveText(SKILL2)
+  await expect(b.page.getByTestId('round-2-skill')).toHaveText(`Your skill: ${SKILL2}. Revealed to @${nameA} when round 2 starts`)
   const setterUrlB = await videoSrc(b.page.getByTestId('round-2-own-setter'))
   await expect(a.page.getByTestId('round-1').getByTestId('setter-waiting')).toBeVisible({ timeout: 20_000 })
-  await expect(a.page.getByTestId('round-2-skill')).not.toContainText(SKILL2)
+  await expect(a.page.getByTestId('round-2-skill')).toHaveText(`Set by @${nameB}. Revealed when round 2 starts`)
   expect(await videoStatus(a.page, setterUrlB)).toBe(404)
   expect(await videoStatus(c.page, setterUrlB)).toBe(404)
 

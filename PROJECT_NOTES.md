@@ -8,14 +8,15 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 ## Current status
 - MVP is built and deployed: state machine, schemas and server actions, cron sweep (confirmed running in prod logs), files guard, full arena-themed UI, two emails (challenge, battle result).
 - **Set-and-match rules (D53, D54):** setters film first in rounds 1–2 (A with the challenge, B with the accept); blind invite; unrevealed skills live on hidden setter submission rows, not the public battle state. Old active battles finish under the old rules; old open invites can't be accepted.
-- `npx deepspace test run all --port 5181`: 13/13 pass, including `tests/battle.spec.ts` (3-user set-and-match battle with network-level leak checks, ~1.6 min, plus a 375px layout check; and a cancel-invite test that re-challenges the pair). 85 vitest unit tests pass.
+- `npx deepspace test run all --port 5181`: 13/13 pass (88 unit tests), including `tests/battle.spec.ts` (3-user set-and-match battle with network-level leak checks, ~1.6 min, plus a 375px layout check; and a cancel-invite test that re-challenges the pair). 
 - Test accounts (by name in the spec): "Player A" = fi-skillclash-a@deepspace.test, "Player B" = fi-skillclash-b@deepspace.test, "Voter C" = voter-c@deepspace.test (stored in `~/.deepspace/test-accounts.json`).
 - Email delivery not yet confirmed in production logs (no real battle finished on prod). Test-mode battles send no email (D48).
 - Cancel/expiry and the past-round UI went live at 055247f. Set-and-match rules deployed and pushed at b3323c1 (2026-11-25); prod sweep logs `active=2 invited=0 ... failed=0`. Working tree clean.
 - **Not yet checked by a person:** the set-and-match flow on a real phone (record in the challenge form and accept panel, "Match this"), the earlier phone checks (expanded rounds, Expires in, Cancel flow), and video playback in desktop Chrome (D43).
-- Decisions D1–D54 in `docs/DECISIONS.md`.
+- Decisions D1–D55 in `docs/DECISIONS.md`.
 
 ## Recent changes
+- 2026-11-25: D55: the accept-panel bug report was a stale tab (old JS, new server). Added a production-only "SkillClash was updated, Reload" banner, compact one-line locked rounds with per-viewer copy (`lockedRoundCopy`), and new accept panel copy.
 - 2026-11-25: Set-and-match rounds 1–2 (D53): A must film round 1's skill to challenge, B must name and film round 2's to accept; B's invite is blind; replicator-only deadlines; "Match this" box. Skills hidden server-side on setter submission rows; `publicSubmissions()` decides reveals. Old battles: D54.
 - 2026-11-25: Challenger can cancel an unanswered invite (`cancelled`, D50). Invites expire after the mode's `inviteWindowMs` (24h Standard, 5 min Test) via cron + lazy check (`expired`, D51). Expanded past rounds show only videos/skills; missed players get a one-line row; summary has keyboard-only focus ring (D52).
 - 2026-11-25: Fixed blank videos: the player URL lacked the `apps/<appId>/` key prefix, so the platform answered 403 (D43). Files proxy now serves a video only to its uploader until reveal (D44). Feed card shows the current round's skill (D45). Battle page: current round first, past rounds collapsed newest first (D46). One open battle per pair (D47). No emails for test mode (D48). iPhone uploads checked: H.264, not HEVC (D49).
@@ -40,6 +41,7 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - Out of scope for MVP: Stripe, followers, DMs, tournaments, rankings.
 
 ## Next steps
+- [ ] After a deploy, leave a tab open and confirm the "SkillClash was updated" banner appears on refocus (D55).
 - [ ] On a phone: send a challenge (record in the form), accept with a recorded video, check B's invite shows no skill, and the "Match this" box in rounds 1 and 2.
 - [ ] Clean up unused setter videos: they stay in storage when a challenge is declined, cancelled or expires (D53).
 - [ ] On a phone: expand a past round (videos only, no outline on tap), check "Expires in" on a new invite, and test Cancel challenge → Keep it / Yes, cancel, then re-challenge.

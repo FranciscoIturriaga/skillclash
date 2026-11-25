@@ -7,7 +7,9 @@ import {
   currentRoundState,
   inviteDeadline,
   roundPoints,
+  setterOf,
   sideOf,
+  usesSetterRules,
   type BattleState,
   type RoundState,
   type Side,
@@ -181,4 +183,36 @@ export function roundDisplayOrder(state: BattleState): RoundSlot[] {
     ...past.map((round) => ({ round, collapsible: true })),
     ...later.map((round) => ({ round, collapsible: false })),
   ]
+}
+
+/**
+ * One short line for a locked (pending) round, worded for who is looking
+ * (D55). Never names an unrevealed skill unless the viewer set it
+ * (`ownSkill` comes from the viewer's own hidden row).
+ */
+export function lockedRoundCopy(
+  state: BattleState,
+  round: 1 | 2 | 3,
+  viewer: Side | null,
+  names: { a: string; b: string },
+  ownSkill?: string | null,
+): string {
+  if (round === 3) return 'Freestyle. Opens after round 2'
+  if (!usesSetterRules(state)) {
+    // Legacy battles (D54): skills were public from the start.
+    const skill = state.rounds[round - 1].skill
+    const when = round === 1 ? 'Opens when the challenge is accepted' : 'Opens after round 1'
+    return skill ? `${skill}. ${when}` : when
+  }
+  const setter = setterOf(state, round)!
+  const other: Side = setter === 'a' ? 'b' : 'a'
+  if (viewer === setter) {
+    if (!ownSkill && round === 2 && state.status === 'invited') return "You'll set this when accepting"
+    const yours = ownSkill ? `Your skill: ${ownSkill}` : 'Your skill'
+    return round === 1
+      ? `${yours}. Revealed to @${names[other]} when they accept`
+      : `${yours}. Revealed to @${names[other]} when round 2 starts`
+  }
+  if (round === 1) return viewer === 'b' ? `Set by @${names.a}. Revealed when you accept` : 'Revealed when the battle starts'
+  return viewer === 'a' ? `Set by @${names.b}. Revealed when round 2 starts` : 'Revealed when round 2 starts'
 }

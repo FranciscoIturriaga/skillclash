@@ -357,3 +357,15 @@ After the fixes: 12 passed, 0 failed, 0 skipped; 47 unit tests pass.
 - **Simplest safe option:** a battle without `state.rules` is a legacy battle and keeps the old flow end to end (both film blind every round, skills already public in the state). `setterOf` returns null for it, so nothing new applies. The last prod sweep before this change logged 2 active battles and 0 open invites.
 - **Legacy invites:** accepting one would need a round 1 video that doesn't exist, so `accept` refuses it with `legacy_invite` ("This challenge was sent under the old rules. Ask for a new one."). B can still decline and A can still cancel, and invite expiry frees the pair within 24h anyway. The invite panel shows that message and disables Accept.
 - **No data migration:** nothing on the live site is rewritten.
+
+### D55. Accept panel report: stale tab, plus compact per-viewer locked rounds and a reload banner
+- **Finding:** the report (no video picker in the accept panel, "Round 1 skill: . Accept by picking round 2's skill.", "Unlocks when round 0 ends") matched the pre-D53 client. The live bundle after the D53 deploy already had the picker ("Show them the skill: record it now", 20 s / 50 MB / `accept="video/*"` / 1080p hint) and none of that copy; the server error "Record or choose a video first." came from the new server. So the tab was still running the old JS against the new server.
+- **Decided, stale tabs:** `UpdateBanner` (app layout, production only) compares the page's `/assets/index-*.js` with the one `/home` now serves, on focus and every 5 minutes, and shows "SkillClash was updated. Reload to get the latest version." with a Reload button. No forced reload, so nobody loses a half-filled form.
+- **Decided, copy:** the accept panel says "{mode} mode. Accept by recording your round 2 skill. You'll see their skill when round 1 starts." It never mentions round 1's skill.
+- **Decided, locked rounds:** every pending round is one compact row (R{n}, one line of copy, lock icon) instead of a tall card, so the live panel stays the focus. Copy comes from `lockedRoundCopy()` (view.ts, unit tested) and depends on the viewer:
+  - Round 1: B "Set by @A. Revealed when you accept"; A "Your skill: X. Revealed to @B when they accept"; others "Revealed when the battle starts".
+  - Round 2: B "You'll set this when accepting" (then "Your skill: X. Revealed to @A when round 2 starts"); A "Set by @B. Revealed when round 2 starts"; others "Revealed when round 2 starts".
+  - Round 3: "Freestyle. Opens after round 2".
+  - Legacy battles (D54) show their public skill plus "Opens when the challenge is accepted" / "Opens after round 1".
+  - A setter's own hidden video sits under a "Watch your skill video" disclosure on the row (round 1's stays in A's invite panel).
+- **Tests:** the browser spec checks B's invite shows the uploader (visible button, hint, `accept`), picks a file through it, shows the per-viewer locked copy, and has no "round 0" and no round 1 skill text; the challenge form check is the same.

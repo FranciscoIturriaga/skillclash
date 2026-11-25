@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createBattle, transition, type BattleAction, type BattleState, type MachineResult } from './machine'
-import { activeDeadline, bucketFor, formatCountdown, formatExpiresIn, inviteExpiry, profileStats, roundDisplayOrder, runningScore, statusLabel } from './view'
+import { activeDeadline, bucketFor, formatCountdown, formatExpiresIn, inviteExpiry, lockedRoundCopy, profileStats, roundDisplayOrder, runningScore, statusLabel } from './view'
 import { MODES } from './modes'
 
 const A = 'user_a'
@@ -115,5 +115,36 @@ describe('cancelled and expired invites (D50, D51)', () => {
     expect(formatExpiresIn(59 * 60_000 + 59_000)).toBe('59m')
     expect(formatExpiresIn(30_000)).toBe('<1m')
     expect(formatExpiresIn(0)).toBe('now')
+  })
+})
+
+describe('lockedRoundCopy (D55)', () => {
+  const names = { a: 'ann', b: 'bob' }
+  const all = (s: BattleState, viewer: 'a' | 'b' | null, own?: string) =>
+    ([1, 2, 3] as const).map((n) => lockedRoundCopy(s, n, viewer, names, own))
+
+  it('words an open invite for B, A and others, with no skill and no "round 0"', () => {
+    expect(all(invited(), 'b')).toEqual([
+      'Set by @ann. Revealed when you accept',
+      "You'll set this when accepting",
+      'Freestyle. Opens after round 2',
+    ])
+    expect(lockedRoundCopy(invited(), 1, 'a', names, 'Juggling')).toBe('Your skill: Juggling. Revealed to @bob when they accept')
+    expect(lockedRoundCopy(invited(), 2, 'a', names)).toBe('Set by @bob. Revealed when round 2 starts')
+    expect(all(invited(), null)).toEqual(['Revealed when the battle starts', 'Revealed when round 2 starts', 'Freestyle. Opens after round 2'])
+    for (const v of ['a', 'b', null] as const) for (const t of all(invited(), v)) expect(t).not.toMatch(/round 0|Juggling/)
+  })
+
+  it('after accept, round 2 shows B their own skill and hides it from A', () => {
+    const s = active()
+    expect(lockedRoundCopy(s, 2, 'b', names, 'Backflip')).toBe('Your skill: Backflip. Revealed to @ann when round 2 starts')
+    expect(lockedRoundCopy(s, 2, 'a', names)).toBe('Set by @bob. Revealed when round 2 starts')
+  })
+
+  it('legacy battles show their public skills', () => {
+    const { rules: _r, ...legacy } = invited()
+    legacy.rounds = [{ ...legacy.rounds[0], skill: 'Juggling' }, legacy.rounds[1], legacy.rounds[2]]
+    expect(lockedRoundCopy(legacy, 1, 'b', names)).toBe('Juggling. Opens when the challenge is accepted')
+    expect(lockedRoundCopy(legacy, 2, null, names)).toBe('Opens after round 1')
   })
 })
