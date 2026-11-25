@@ -3,7 +3,7 @@ import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { currentRoundState, type BattleState } from '../../battle/machine'
 import { activeDeadline, inviteExpiry, runningScore, statusLabel, roundLabel } from '../../battle/view'
-import { Countdown, ExpiresIn, LiveDot, PlayerTag } from './bits'
+import { Countdown, ExpiresIn, LiveDot, ModeBadge, PlayerTag } from './bits'
 
 /** One battle in a feed: "@a VS @b", status, score and the live countdown. */
 export function BattleCard({
@@ -71,7 +71,10 @@ export function BattleCard({
       </div>
 
       <div className={cn('flex items-center justify-between text-sm text-muted-foreground', compact ? 'mt-1' : 'mt-3')}>
-        <span className="truncate">{roundLabel(shownRound)}{state.modeId === 'test' ? ' · test mode' : ''}</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <ModeBadge modeId={state.modeId} />
+          <span className="truncate">{roundLabel(shownRound)}</span>
+        </span>
         <ChevronRight className="size-4 shrink-0 transition-transform group-hover:translate-x-0.5" aria-hidden />
       </div>
     </Link>

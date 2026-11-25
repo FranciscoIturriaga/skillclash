@@ -73,9 +73,11 @@ export function statusLabel(state: BattleState, userId: string | null): string {
     case 'active': {
       const r = currentRoundState(state)
       if (!r) return 'In progress'
-      if (r.phase === 'vote') return `Round ${r.number} · Voting`
-      if (side && !r.submitted[side]) return `Round ${r.number} · Your turn`
-      return `Round ${r.number} · Filming`
+      // One-round battles (Rapid Fire, D63) don't number their round.
+      const prefix = state.rounds.length > 1 ? `Round ${r.number} · ` : ''
+      if (r.phase === 'vote') return `${prefix}Voting`
+      if (side && !r.submitted[side]) return `${prefix}Your turn`
+      return `${prefix}Filming`
     }
   }
 }
@@ -103,9 +105,10 @@ export function formatExpiresIn(ms: number): string {
   return `${Math.floor(minutes / 60)}h`
 }
 
-/** "11:59:03", "4:05", "0:09". */
+/** "11:59:03", "4:05", "0:09"; a day or more is "6d 23h" (demo voting, D65). */
 export function formatCountdown(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000))
+  if (total >= 86_400) return `${Math.floor(total / 86_400)}d ${Math.floor((total % 86_400) / 3600)}h`
   const h = Math.floor(total / 3600)
   const m = Math.floor((total % 3600) / 60)
   const s = total % 60

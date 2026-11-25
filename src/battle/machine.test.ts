@@ -672,3 +672,101 @@ describe('publicSubmissions (what the server reveals)', () => {
     ])
   })
 })
+
+// ── Rapid Fire: one round, no bonus, modes as config (D63) ────────────────
+
+describe('Rapid Fire (1 round)', () => {
+  const R = MODES.rapid
+  const rapidInvite = () => ok(createBattle({ playerA: A, playerB: B, modeId: 'rapid', round1Skill: 'Juggling' }, T0)).state
+  const rapidAccepted = (at = T0 + 1000) =>
+    ok(transition(rapidInvite(), { type: 'accept', by: B, round1Skill: 'Juggling' }, at)).state
+
+  it('is configured as 1 round, 5 min invite and submit, 15 min vote, no bonus', () => {
+    expect(R.rounds).toBe(1)
+    expect(R.inviteWindowMs).toBe(5 * 60_000)
+    expect(R.submitWindowMs).toBe(5 * 60_000)
+    expect(R.voteWindowMs).toBe(15 * 60_000)
+    expect(R.battleBonus).toBe(false)
+  })
+
+  it('creates exactly one round', () => {
+    const s = rapidInvite()
+    expect(s.rounds).toHaveLength(1)
+    expect(s.rounds[0].number).toBe(1)
+    expect(inviteDeadline(s)).toBe(T0 + R.inviteWindowMs)
+  })
+
+  it('B accepts blind with no round 2 skill; round 1 opens with a 5-minute clock and A already in', () => {
+    const r = ok(transition(rapidInvite(), { type: 'accept', by: B, round1Skill: 'Juggling' }, T0 + 1000))
+    expect(r.events).toEqual([{ type: 'battle_started' }])
+    expect(r.state.status).toBe('active')
+    expect(r.state.currentRound).toBe(1)
+    expect(r.state.rounds[0].skill).toBe('Juggling')
+    expect(r.state.rounds[0].phase).toBe('submit')
+    expect(r.state.rounds[0].submitted).toEqual({ a: true, b: false })
+    expect(r.state.rounds[0].submitDeadline).toBe(T0 + 1000 + R.submitWindowMs)
+    expect(setterOf(r.state, 1)).toBe('a')
+  })
+
+  it('expires an unanswered invite at exactly 5 minutes', () => {
+    const s = rapidInvite()
+    expect(dueAction(s, T0 + R.inviteWindowMs - 1)).toBeNull()
+    expect(dueAction(s, T0 + R.inviteWindowMs)).toBe('inviteExpiry')
+    expect(errCode(transition(s, { type: 'inviteExpiry' }, T0 + R.inviteWindowMs - 1))).toBe('deadline_not_reached')
+    expect(step(s, { type: 'inviteExpiry' }, T0 + R.inviteWindowMs).status).toBe('expired')
+    expect(errCode(transition(s, { type: 'accept', by: B, round1Skill: 'Juggling' }, T0 + R.inviteWindowMs))).not.toBe('ok')
+  })
+
+  it('B submits: 15 minutes of voting, then a round win is +10 and the battle ends with no bonus', () => {
+    const s = step(rapidAccepted(), { type: 'submit', by: B, round: 1 }, T0 + 60_000)
+    expect(s.rounds[0].phase).toBe('vote')
+    expect(s.rounds[0].voteDeadline).toBe(T0 + 60_000 + R.voteWindowMs)
+    const r = ok(transition(s, { type: 'closeVoting', votesA: 1, votesB: 3 }, s.rounds[0].voteDeadline!))
+    expect(r.state.status).toBe('complete')
+    expect(r.state.currentRound).toBeNull()
+    expect(r.state.result!.winner).toBe('b')
+    expect(r.state.result!.bonus).toEqual({ a: 0, b: 0 })
+    expect(r.state.result!.total).toEqual({ a: 0, b: 10 })
+    expect(r.events).toContainEqual({ type: 'battle_completed', result: r.state.result })
+  })
+
+  it('zero votes is a tie: +5 each, no bonus', () => {
+    const s = step(rapidAccepted(), { type: 'submit', by: B, round: 1 }, T0 + 60_000)
+    const done = closeVotes(s, 0, 0)
+    expect(done.result!.winner).toBe('draw')
+    expect(done.result!.total).toEqual({ a: 5, b: 5 })
+  })
+
+  it('B misses the deadline: A (the challenger) wins +10, no bonus', () => {
+    const s = rapidAccepted()
+    const done = passSubmitDeadline(s)
+    expect(done.status).toBe('complete')
+    expect(done.rounds[0].outcome).toEqual({ kind: 'forfeit', winner: 'a' })
+    expect(done.result!.winner).toBe('a')
+    expect(done.result!.total).toEqual({ a: 10, b: 0 })
+  })
+
+  it('refuses round 2 and 3 submissions', () => {
+    expect(errCode(transition(rapidAccepted(), { type: 'submit', by: B, round: 2 }, T0 + 2000))).not.toBe('ok')
+    expect(errCode(transition(rapidAccepted(), { type: 'submit', by: B, round: 3 }, T0 + 2000))).not.toBe('ok')
+  })
+
+  it('Standard is unchanged: 3 rounds, bonus applies', () => {
+    expect(MODES.standard.rounds).toBe(3)
+    expect(MODES.standard.battleBonus).toBe(true)
+    const s = ok(createBattle({ playerA: A, playerB: B, modeId: 'standard', round1Skill: 'Juggling' }, T0)).state
+    expect(s.rounds.map((r) => r.number)).toEqual([1, 2, 3])
+    // A Standard accept still needs B's round 2 skill.
+    expect(errCode(transition(s, { type: 'accept', by: B, round1Skill: 'Juggling' }, T0 + 1))).toBe('invalid_skill')
+  })
+})
+
+describe('battleResult with and without the bonus', () => {
+  const w = { kind: 'votes', winner: 'a', votesA: 2, votesB: 0 } as const
+  it('adds the bonus by default (Standard)', () => {
+    expect(battleResult([w]).total).toEqual({ a: 20, b: 0 })
+  })
+  it('skips it when the mode has none (Rapid Fire)', () => {
+    expect(battleResult([w], false).total).toEqual({ a: 10, b: 0 })
+  })
+})

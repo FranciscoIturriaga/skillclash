@@ -186,3 +186,26 @@ describe('stats backfill', () => {
     expect(f.statsOf(A)).toMatchObject({ played: 2 })
   })
 })
+
+describe('Rapid Fire battles count in the same stored stats (D63)', () => {
+  function rapidDone(outcome: RoundOutcome): BattleState {
+    const r = createBattle({ playerA: A, playerB: B, modeId: 'rapid', round1Skill: 'Juggling' }, T0)
+    if (!r.ok) throw new Error(r.error.message)
+    return { ...r.state, status: 'complete', currentRound: null, completedAt: T0, result: battleResult([outcome], false) }
+  }
+
+  it('a Rapid Fire win is +10 with no bonus, recorded in player_stats', async () => {
+    const f = fakeTools()
+    await recordBattleStats(f.tools, 'rf1', rapidDone(win('a')))
+    expect(f.statsOf(A)).toMatchObject({ points: 10, played: 1, won: 1, lost: 0, roundWins: 1 })
+    expect(f.statsOf(B)).toMatchObject({ points: 0, played: 1, won: 0, lost: 1 })
+  })
+
+  it('a Rapid Fire tie is +5 each; the opponent missing the deadline gives the challenger +10', async () => {
+    const f = fakeTools()
+    await recordBattleStats(f.tools, 'rf2', rapidDone(tie))
+    await recordBattleStats(f.tools, 'rf3', rapidDone(forfeit('a')))
+    expect(f.statsOf(A)).toMatchObject({ points: 15, played: 2, won: 1, tied: 1 })
+    expect(f.statsOf(B)).toMatchObject({ points: 5, played: 2, lost: 1, tied: 1 })
+  })
+})

@@ -8,7 +8,7 @@ This document is the source of truth for SkillClash game behavior. If code and t
 - **Blind invite:** B sees only "@A challenged you", the mode and when the invite expires. B can't see round 1's skill or A's video before accepting.
 - B accepts or declines. To accept, B names round 2's skill (it must differ from round 1's; checked on the server) AND records or uploads a video of it. A can't see round 2's skill or B's video until round 2 opens.
 - The battle starts only when B accepts.
-- Two players can have only one open (invited or active) battle with each other at a time, in either direction.
+- Two players can have only one open (invited or active) battle with each other **per mode** at a time, in either direction: one open Standard battle and one open Rapid Fire battle at once is fine, two open battles of the same mode is not ("You already have an open [mode] battle with @username.").
 
 ### Cancelling an invite
 
@@ -65,14 +65,30 @@ A battle has 3 rounds, and all 3 are always played.
 
 Modes are stored as config, not hard-coded.
 
-| Mode     | Invite window | Submission window | Voting window | Status          |
-| -------- | ------------- | ----------------- | ------------- | --------------- |
-| Standard | 24h           | 12h               | 3h            | MVP             |
-| Demo     | TBD           | TBD               | TBD           | Added later     |
-| Quick    | TBD           | 3h                | 1h            | Optional, later |
-| Casual   | TBD           | 48h               | 12h           | Optional, later |
+Modes are config (`src/battle/modes.ts`): each mode sets the number of rounds, the invite, submission and voting windows, and whether the battle bonus applies. The rules engine reads these values; nothing else differs per mode.
 
-A hidden Test mode (automated tests only) uses a 5-minute invite window, 3-minute submission window and 20-second voting window.
+| Mode       | Rounds | Invite window | Submission window | Voting window | Battle bonus | Who can pick it |
+| ---------- | ------ | ------------- | ----------------- | ------------- | ------------ | --------------- |
+| Standard   | 3      | 24h           | 12h per round     | 3h per round  | Yes          | Everyone        |
+| Rapid Fire | 1      | 5 min         | 5 min             | 15 min        | No           | Everyone        |
+| Demo       | 1      | n/a (seeded)  | n/a (seeded)      | 7 days        | No           | Owner only (seeded for reviewers) |
+
+Hidden test modes (automated tests only, `/challenge?test=1`): Test (3 rounds, 5-minute invite, 3-minute submission, 20-second voting) and Rapid Fire test (Rapid Fire rules with a 3-minute submission and 20-second voting window). Test and demo battles send no email.
+
+### Rapid Fire
+
+- **One round only.** There is no round 2 or round 3.
+- **Challenge:** the challenger names the skill and records the video when challenging, the same as Standard round 1.
+- **Blind invite:** the opponent sees only who challenged them, the mode and when the invite expires. Nothing to name or film to accept.
+- **Invite expiry:** 5 minutes.
+- **Accept:** the round opens at once. The opponent sees the skill and the challenger's video and has **5 minutes** to record their match. The accept screen says the clock starts the moment they tap Accept.
+- **Voting:** opens as soon as the opponent submits and runs for **15 minutes**.
+- **Scoring:** round win +10, tie +5 each, zero votes = tie. If the opponent misses the 5-minute deadline, the challenger wins the round (+10). **No battle bonus.** Points go into the same stored player stats as Standard.
+- Rapid Fire battles show a "Rapid Fire" badge on cards, the battle page, invites and profile history.
+
+### Demo battle
+
+- A demo battle between two demo players (@demo_ava and @demo_ben), already in voting with a 7-day window, so reviewers with a single account can vote. It shows a "Demo" badge. Only the app owner can create one (see PROJECT_NOTES.md); one open demo battle at a time.
 
 ## Scoring
 
@@ -96,6 +112,8 @@ A hidden Test mode (automated tests only) uses a 5-minute invite window, 3-minut
 - An old-rules invite still open can't be accepted; B can decline it or A can cancel it.
 
 ### Battle bonus
+
+Standard only (Rapid Fire and Demo battles have no battle bonus).
 
 | Outcome     | Points  |
 | ----------- | ------- |

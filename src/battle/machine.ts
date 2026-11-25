@@ -9,7 +9,7 @@
  *
  * ── Battle lifecycle ────────────────────────────────────────────────────────
  *
- *   invited ──accept (by B)──▶ active ──round 3 closes──▶ complete
+ *   invited ──accept (by B)──▶ active ──last round closes──▶ complete
  *      │
  *      ├────decline (by B)──────────────▶ declined
  *      ├────cancel (by A)───────────────▶ cancelled
@@ -22,7 +22,11 @@
  *   expired battles are final and free the one-open-battle-per-pair rule.
  *
  *   A battle is created by Player A challenging Player B (`createBattle`).
- *   Nothing is played until B accepts. All 3 rounds are always played.
+ *   Nothing is played until B accepts. Every round is always played. The
+ *   mode sets how many rounds there are (`rounds` in modes.ts: 3 in Standard,
+ *   1 in Rapid Fire, D63); `state.rounds` holds exactly that many, and the
+ *   battle completes when the last one closes. The mode also says whether
+ *   the battle bonus applies. Nothing below branches on the mode itself.
  *
  * ── Round lifecycle (one round at a time, inside an active battle) ──────────
  *
@@ -105,7 +109,7 @@ export interface BattleResult {
   roundWins: Pair
   /** Sum of round points (10 win / 5 tie / 0 loss or both missed). */
   roundPoints: Pair
-  /** Battle bonus: +10 overall win, +5 each for a draw. */
+  /** Battle bonus: +10 overall win, +5 each for a draw; 0/0 in modes without it. */
   bonus: Pair
   /** roundPoints + bonus. This is what goes on profiles. */
   total: Pair
@@ -122,7 +126,8 @@ export interface BattleState {
   status: BattleStatus
   /** The round being played; null before accept and after the battle ends. */
   currentRound: RoundNumber | null
-  rounds: [RoundState, RoundState, RoundState]
+  /** One entry per round of the mode: 3 (Standard) or 1 (Rapid Fire). */
+  rounds: RoundState[]
   createdAt: number
   /**
    * When an unanswered invite expires. Battles created before D51 lack it;
@@ -141,7 +146,7 @@ export type BattleAction =
    * the server from A's hidden setter submission (v2); legacy battles have it
    * in the state already.
    */
-  | { type: 'accept'; by: string; round2Skill: string; round1Skill?: string | null }
+  | { type: 'accept'; by: string; round2Skill?: string | null; round1Skill?: string | null }
   | { type: 'decline'; by: string }
   /** The challenger withdraws an invite that hasn't been answered yet. */
   | { type: 'cancel'; by: string }
@@ -223,8 +228,11 @@ export function roundWinner(outcome: RoundOutcome): Side | null {
   return outcome.winner as Side
 }
 
-/** Final battle result once all three rounds are closed. */
-export function battleResult(outcomes: RoundOutcome[]): BattleResult {
+/**
+ * Final battle result once every round is closed. `battleBonus` comes from
+ * the mode (false in Rapid Fire, D63).
+ */
+export function battleResult(outcomes: RoundOutcome[], battleBonus = true): BattleResult {
   const roundPts = { a: 0, b: 0 }
   const wins = { a: 0, b: 0 }
   for (const o of outcomes) {
@@ -238,8 +246,9 @@ export function battleResult(outcomes: RoundOutcome[]): BattleResult {
   // 10 × round-win difference, so this is the same as comparing round wins.)
   const winner: Side | 'draw' =
     roundPts.a > roundPts.b ? 'a' : roundPts.b > roundPts.a ? 'b' : 'draw'
-  const bonus =
-    winner === 'draw'
+  const bonus = !battleBonus
+    ? { a: 0, b: 0 }
+    : winner === 'draw'
       ? { a: POINTS.battleDraw, b: POINTS.battleDraw }
       : winner === 'a'
         ? { a: POINTS.battleWin, b: 0 }
@@ -302,6 +311,29 @@ export function publicSubmissions(state: BattleState): Array<{ round: RoundNumbe
     }
   }
   return out
+}
+
+/** How many rounds a mode plays (3 if the mode is unknown, like every pre-D63 battle). */
+export function roundsForMode(modeId: string): number {
+  return getMode(modeId)?.rounds ?? 3
+}
+
+/** Whether the mode awards the battle bonus (true if unknown). */
+export function bonusForMode(modeId: string): boolean {
+  return getMode(modeId)?.battleBonus ?? true
+}
+
+/** True when this round is the battle's last (round 3 in Standard, round 1 in Rapid Fire). */
+export function isLastRound(state: Pick<BattleState, 'rounds'>, round: number): boolean {
+  return round >= state.rounds.length
+}
+
+/**
+ * Round 3 of a 3-round battle: freestyle, each player names their own skill.
+ * Rapid Fire's only round is a set-and-match round, not freestyle.
+ */
+export function isFreestyle(state: Pick<BattleState, 'rounds'>, round: number): boolean {
+  return round === 3 && state.rounds.length === 3
 }
 
 export function currentRoundState(state: BattleState): RoundState | null {
@@ -413,10 +445,10 @@ function closeRound(
   let next = withRound(state, { ...round, phase: 'closed', closedAt: at, outcome })
   events.push({ type: 'round_closed', round: round.number, outcome })
 
-  if (round.number < 3) {
+  if (!isLastRound(next, round.number)) {
     return openRound(next, (round.number + 1) as RoundNumber, at, nextSkill)
   }
-  const result = battleResult(next.rounds.map((r) => r.outcome!))
+  const result = battleResult(next.rounds.map((r) => r.outcome!), bonusForMode(next.modeId))
   next = { ...next, status: 'complete', currentRound: null, completedAt: at, result }
   events.push({ type: 'battle_completed', result })
   return next
@@ -451,7 +483,7 @@ export function createBattle(input: NewBattle, now: number): MachineResult {
     playerB: input.playerB,
     status: 'invited',
     currentRound: null,
-    rounds: [emptyRound(1, null), emptyRound(2, null), emptyRound(3, null)],
+    rounds: Array.from({ length: mode.rounds }, (_, i) => emptyRound((i + 1) as RoundNumber, null)),
     createdAt: now,
     inviteExpiresAt: now + mode.inviteWindowMs,
     respondedAt: null,
@@ -477,8 +509,9 @@ function apply(state: BattleState, action: BattleAction, now: number): MachineRe
   const events: BattleEvent[] = []
 
   switch (action.type) {
-    // B answers the challenge. Accepting names (and, in v2, films) round 2's
-    // skill and opens round 1.
+    // B answers the challenge and round 1 opens. In a multi-round battle,
+    // accepting also names (and films) round 2's skill; a 1-round battle
+    // (Rapid Fire) has no round 2, so B accepts with nothing to name (D63).
     case 'accept': {
       const closed = inviteClosed(state, now)
       if (closed) return closed
@@ -486,12 +519,16 @@ function apply(state: BattleState, action: BattleAction, now: number): MachineRe
       if (!usesSetterRules(state)) {
         return fail('legacy_invite', 'This challenge was sent under the old rules. Ask for a new one.')
       }
-      const skill = normalizeSkill(action.round2Skill)
-      if (!skill) return fail('invalid_skill', `Name a skill for round 2 (1–${SKILL_MAX_LENGTH} characters).`)
       const round1Skill = normalizeSkill(action.round1Skill)
-      if (!round1Skill) return fail('invalid_skill', "Round 1's skill is missing.")
-      if (skill.toLowerCase() === round1Skill.toLowerCase()) {
-        return fail('same_skill', 'Round 2 needs a different skill from round 1.')
+      if (state.rounds.length > 1) {
+        const skill = normalizeSkill(action.round2Skill)
+        if (!skill) return fail('invalid_skill', `Name a skill for round 2 (1–${SKILL_MAX_LENGTH} characters).`)
+        if (!round1Skill) return fail('invalid_skill', "Round 1's skill is missing.")
+        if (skill.toLowerCase() === round1Skill.toLowerCase()) {
+          return fail('same_skill', 'Round 2 needs a different skill from round 1.')
+        }
+      } else if (!round1Skill) {
+        return fail('invalid_skill', "Round 1's skill is missing.")
       }
       // Round 2's skill is NOT stored: it stays on B's hidden setter
       // submission until round 2 opens.

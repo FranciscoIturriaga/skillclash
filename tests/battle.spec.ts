@@ -73,10 +73,11 @@ function sniff(page: Page) {
 const uniqueSkill = (base: string) => `${base} ${Math.random().toString(36).slice(2, 8)}`
 
 /** Send a test-mode challenge through the form, with a round 1 video; returns the battle path. */
-async function sendChallenge(page: Page, opponent: string, skill: string): Promise<string> {
+async function sendChallenge(page: Page, opponent: string, skill: string, mode: 'test' | 'rapid_test' = 'test'): Promise<string> {
   await page.goto('/challenge?test=1')
+  await page.getByTestId(`mode-${mode}`).click()
   await page.getByLabel('Opponent').fill(opponent)
-  await page.getByLabel('Round 1 skill').fill(skill)
+  await page.getByLabel(mode === 'test' ? 'Round 1 skill' : 'Skill', { exact: true }).fill(skill)
   await expect(page.getByTestId('send-challenge')).toBeDisabled() // a video is required
   const form = page.getByTestId('challenge-form')
   await expect(form).toContainText('Show them the skill: record it now')
@@ -185,10 +186,18 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   const again = await callAction(a.page, 'challenge', { opponentUsername: nameB, skill: 'Again', modeId: 'test' })
   expect(again.success).toBe(false)
   expect(again.code).toBe('open_battle_exists')
-  expect(again.error).toBe(`You already have an open battle with @${nameB}.`)
+  expect(again.error).toBe(`You already have an open Test battle with @${nameB}.`)
   const reverse = await callAction(b.page, 'challenge', { opponentUsername: nameA, skill: 'Reverse', modeId: 'test' })
   expect(reverse.success).toBe(false)
-  expect(reverse.error).toBe(`You already have an open battle with @${nameA}.`)
+  expect(reverse.error).toBe(`You already have an open Test battle with @${nameA}.`)
+  // Per mode (D64): the open Test battle doesn't block another mode. This
+  // call gets past the pair rule and stops only at the missing video.
+  const otherMode = await callAction(a.page, 'challenge', { opponentUsername: nameB, skill: 'Other', modeId: 'rapid_test' })
+  expect(otherMode.success).toBe(false)
+  expect(otherMode.error).toBe('Record or choose a video first.')
+  // Demo battles can't be created by players (D65).
+  const demo = await callAction(a.page, 'challenge', { opponentUsername: nameB, skill: 'Demo', modeId: 'demo' })
+  expect(demo.code).toBe('invalid_mode')
 
   // Blind invite: B sees only who, the mode and the expiry. No skill, no video.
   await b.page.goto('/home')
@@ -584,4 +593,78 @@ test('cancel an invite, then the pair can challenge again', async ({ users }) =>
   await a.page.getByTestId('confirm-cancel-challenge').click()
   await expect(a.page.getByTestId('battle-status')).toHaveText('Cancelled', { timeout: 15_000 })
   await expect(a.page.getByTestId('battle-cancelled')).toContainText('You cancelled')
+})
+
+test('Rapid Fire: one round, blind accept with the clock starting at once, no bonus', async ({ users }) => {
+  test.setTimeout(180_000)
+  const [a, b, c] = await users(ACCOUNTS)
+  await ensureUsername(a.page, a.email)
+  const nameB = await ensureUsername(b.page, b.email)
+  await ensureUsername(c.page, c.email)
+
+  // A failed earlier run can leave a Rapid Fire invite open; B declines it.
+  const loaded = () =>
+    expect(b.page.getByTestId('my-battles').getByTestId('battle-card').first().or(b.page.getByText('No battles yet'))).toBeVisible({
+      timeout: 20_000,
+    })
+  await b.page.goto('/home')
+  await loaded()
+  const invites = b.page.getByTestId('group-invite').getByTestId('battle-card')
+  while ((await invites.count()) > 0) {
+    await invites.first().click()
+    await b.page.getByTestId('decline-challenge').click()
+    await expect(b.page.getByTestId('battle-status')).toHaveText('Declined', { timeout: 15_000 })
+    await b.page.goto('/home')
+    await loaded()
+  }
+
+  // The picker shows both public modes with a one-line description.
+  await a.page.goto('/challenge')
+  await expect(a.page.getByTestId('mode-standard')).toContainText('3 rounds. 24h to accept, 12h to film each round, 3h of voting.')
+  await expect(a.page.getByTestId('mode-rapid')).toContainText('1 round. 5 min to accept, 5 min to match, 15 min of voting.')
+  await expect(a.page.getByTestId('mode-test')).toHaveCount(0)
+
+  const SKILL = uniqueSkill('Spin')
+  const battleUrl = await sendChallenge(a.page, nameB, SKILL, 'rapid_test')
+  const id = battleUrl.split('/').pop()!
+  await expect(a.page.getByTestId('mode-badge')).toHaveText('Rapid Fire', { timeout: 20_000 })
+  await expect(a.page.getByTestId('round-2')).toHaveCount(0)
+
+  // Same mode, same pair: refused, with the mode in the message.
+  const again = await callAction(a.page, 'challenge', { opponentUsername: nameB, skill: 'Again', modeId: 'rapid_test' })
+  expect(again.code).toBe('open_battle_exists')
+  expect(again.error).toBe(`You already have an open Rapid Fire test battle with @${nameB}.`)
+
+  // B's invite: blind, no skill to set, no video, and a clear clock warning.
+  await b.page.goto(battleUrl)
+  const panel = b.page.getByTestId('invite-panel')
+  await expect(panel).toBeVisible({ timeout: 20_000 })
+  await expect(b.page.getByTestId('invite-copy')).toContainText('starts immediately')
+  await expect(b.page.getByTestId('rapid-accept-warning')).toBeVisible()
+  await expect(panel.getByTestId('video-input')).toHaveCount(0)
+  await expect(b.page.locator('body')).not.toContainText(SKILL)
+  await expect(b.page.getByTestId('accept-challenge')).toContainText('Accept · start 3 min')
+  await b.page.getByTestId('accept-challenge').click()
+
+  // The round opens for B straight away with A's skill and a running clock.
+  await expect(b.page.getByTestId('round-1-phase')).toHaveText('Filming', { timeout: 30_000 })
+  await expect(b.page.getByTestId('round-1-skill')).toHaveText(SKILL)
+  await expect(b.page.getByTestId('round-1').getByTestId('match-this')).toContainText('Match this')
+  await expect(b.page.getByTestId('battle-status')).toHaveText('Your turn')
+  await submitRound(b.page, 1)
+
+  // C votes for B; voting closes after 20 s (test timers) and B wins +10.
+  await c.page.goto(battleUrl)
+  await expect(c.page.getByTestId('round-1').getByTestId('vote-b')).toBeVisible({ timeout: 30_000 })
+  await c.page.getByTestId('round-1').getByTestId('vote-b').click()
+  const result = c.page.getByTestId('battle-result')
+  await expect(result).toBeVisible({ timeout: 90_000 })
+  await expect(c.page.getByTestId('battle-score')).toHaveText(/0\s*:\s*10/)
+  await expect(result).not.toContainText('Bonus')
+  expect(await sectionOrder(c.page)).toEqual(['battle-result', 'round-1'])
+
+  // Profile history shows it with the badge.
+  await c.page.goto(`/u/${nameB}`)
+  const card = c.page.locator(`a[href="/battle/${id}"]`).first()
+  await expect(card.getByTestId('mode-badge')).toHaveText('Rapid Fire', { timeout: 20_000 })
 })

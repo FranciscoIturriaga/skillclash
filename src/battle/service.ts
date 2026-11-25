@@ -233,7 +233,7 @@ export async function setterSkill(
 /** The next round's setter skill, when closing the current round opens one that has a setter. */
 async function nextSkillFor(tools: ActionTools, battleId: string, state: BattleState): Promise<string | null> {
   const n = state.currentRound
-  if (n === null || n >= 3) return null
+  if (n === null || n >= state.rounds.length) return null
   return setterSkill(tools, battleId, state, (n + 1) as RoundNumber)
 }
 
@@ -390,30 +390,34 @@ export function asRound(n: unknown): RoundNumber | null {
   return n === 1 || n === 2 || n === 3 ? n : null
 }
 
-// ─── One open battle per pair (D47) ─────────────────────────────────────────
+// ─── One open battle per pair per mode (D47, D64) ────────────────────────────
 
 /**
- * Statuses that count as "open": a pair may have only one battle in them.
+ * Statuses that count as "open": a pair may have only one battle per mode in them.
  * Declined, cancelled, expired and complete battles free the pair (D50, D51).
  */
 export const OPEN_STATUSES: ReadonlyArray<BattleRow['status']> = ['invited', 'active']
 
 /**
  * The first open battle between x and y (either direction), or null. Pure.
- * With `now`, an invite whose deadline (`nextDeadline`) has passed doesn't
- * count, even if the sweep hasn't marked it expired yet.
+ * With `modeId`, only battles of that mode count: a pair may have one open
+ * battle per mode (D64). With `now`, an invite whose deadline
+ * (`nextDeadline`) has passed doesn't count, even if the sweep hasn't marked
+ * it expired yet.
  */
 export function findOpenBattle<
-  R extends { playerA: string; playerB: string; status: string; nextDeadline?: number | null },
+  R extends { playerA: string; playerB: string; status: string; nextDeadline?: number | null; modeId?: string },
 >(
   rows: ReadonlyArray<{ recordId: string; data: R }>,
   x: string,
   y: string,
   now?: number,
+  modeId?: string,
 ): { recordId: string; data: R } | null {
   return (
     rows.find((r) => {
       if (!OPEN_STATUSES.includes(r.data.status as BattleRow['status'])) return false
+      if (modeId !== undefined && r.data.modeId !== modeId) return false
       const lapsed =
         r.data.status === 'invited' && now !== undefined && typeof r.data.nextDeadline === 'number' && now >= r.data.nextDeadline
       if (lapsed) return false

@@ -22,7 +22,7 @@ import { currentRoundState, inviteDeadline, roundPoints, setterOf, sideOf, usesS
 import { getMode } from '../../../battle/modes'
 import { lockedRoundCopy, roundDisplayOrder, runningScore, statusLabel, type BattleRowData, type SubmissionData } from '../../../battle/view'
 import { callAction } from '../../../lib/api'
-import { Countdown, ExpiresIn, LiveDot, Panel, PlayerTag, sideBorder, sideText } from '../../../components/game/bits'
+import { Countdown, ExpiresIn, LiveDot, ModeBadge, Panel, PlayerTag, sideBorder, sideText } from '../../../components/game/bits'
 import { CancelChallenge } from '../../../components/game/CancelChallenge'
 import { VideoPicker, VideoPlayer, VideoUploader, useVideoUpload, type PickedVideo } from '../../../components/game/VideoUploader'
 import { useUsernames } from '../../../components/game/usernames'
@@ -128,7 +128,7 @@ function MatchHeader({ state, viewerId }: { state: BattleState; viewerId: string
           {live && <LiveDot />}
           {statusLabel(state, viewerId)}
         </span>
-        <span>{mode?.label ?? state.modeId}</span>
+        {mode?.badge ? <ModeBadge modeId={state.modeId} /> : <span>{mode?.label ?? state.modeId}</span>}
       </div>
       <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
         <Corner userId={state.playerA} side="a" winner={state.result?.winner === 'a'} />
@@ -190,7 +190,12 @@ function InvitePanel({
   const [error, setError] = useState<string | null>(null)
   const expiresAt = inviteDeadline(state)
   const legacy = !usesSetterRules(state)
-  const modeLabel = getMode(state.modeId)?.label ?? state.modeId
+  const mode = getMode(state.modeId)
+  const modeLabel = mode?.label ?? state.modeId
+  // One-round battles (Rapid Fire): B accepts blind with no video, and the
+  // submit clock starts the moment they accept (D63).
+  const oneRound = state.rounds.length === 1
+  const clockMin = Math.round((mode?.submitWindowMs ?? 0) / 60_000)
 
   if (mySide !== 'b') {
     // The skill is shown only to its setter: legacy battles kept it in the
@@ -205,7 +210,7 @@ function InvitePanel({
               Waiting for <PlayerTag userId={state.playerB} side="b" /> to accept.
               {ownSkill && (
                 <>
-                  {' '}Your round 1 skill: <span className="font-semibold text-foreground" data-testid="own-round-1-skill">{ownSkill}</span>
+                  {' '}{state.rounds.length === 1 ? 'Your skill' : 'Your round 1 skill'}: <span className="font-semibold text-foreground" data-testid="own-round-1-skill">{ownSkill}</span>
                   {!legacy && ' (hidden from them until they accept)'}
                 </>
               )}
@@ -223,6 +228,14 @@ function InvitePanel({
 
   async function accept(e: FormEvent) {
     e.preventDefault()
+    if (oneRound) {
+      setBusy('accept')
+      setError(null)
+      const r = await callAction('acceptChallenge', { battleId })
+      setBusy(null)
+      if (!r.success) return setError(r.error)
+      return toast.success('Challenge accepted', `The clock is running: you have ${clockMin} minutes to match their skill.`)
+    }
     if (!skill.trim()) return setError('Name the round 2 skill to accept.')
     if (!video) return setError('Record your round 2 skill to accept.')
     setBusy('accept')
@@ -255,11 +268,18 @@ function InvitePanel({
             @{nameOf(state.playerA) ?? 'someone'} challenged you
           </p>
           <p className="mt-1 text-sm text-muted-foreground" data-testid="invite-copy">
-            {modeLabel} mode. {legacy ? '' : "Accept by recording your round 2 skill. You'll see their skill when round 1 starts."}
+            {oneRound
+              ? `${modeLabel}: one round. When you accept, you'll see their skill and video, and your ${clockMin}-minute clock to match it starts immediately.`
+              : `${modeLabel} mode. ${legacy ? '' : "Accept by recording your round 2 skill. You'll see their skill when round 1 starts."}`}
           </p>
           <ExpiresIn at={expiresAt} onExpire={onExpire} className="mt-1 text-xs text-muted-foreground" />
         </div>
-        {legacy ? (
+        {oneRound && !legacy ? (
+          <p className="flex items-start gap-2 rounded-xl border border-primary/40 bg-primary/10 p-3 text-sm font-medium text-foreground" data-testid="rapid-accept-warning">
+            <Clock className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+            Only accept when you're ready to film: you'll have {clockMin} minutes from the moment you tap Accept.
+          </p>
+        ) : legacy ? (
           <p className="text-sm text-muted-foreground" data-testid="legacy-invite">
             This challenge was sent under the old rules and can't be accepted any more. Decline it and send a new one.
           </p>
@@ -296,7 +316,7 @@ function InvitePanel({
             Decline
           </Button>
           <Button type="submit" size="lg" className="font-semibold" loading={busy === 'accept'} disabled={!canWrite || busy !== null || legacy} data-testid="accept-challenge">
-            {progress !== null ? `Uploading ${progress}%` : 'Accept'}
+            {progress !== null ? `Uploading ${progress}%` : oneRound ? `Accept · start ${clockMin} min` : 'Accept'}
           </Button>
         </div>
       </form>
@@ -383,7 +403,9 @@ function RoundPanel({
   const header = (
         <div className={cn('flex items-start justify-between gap-3 px-5 py-4', !collapsible && 'border-b border-border')}>
           <div className="min-w-0">
-            <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-muted-foreground">Round {round.number}</p>
+            <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-muted-foreground">
+              {state.rounds.length === 1 ? 'The round' : `Round ${round.number}`}
+            </p>
             <p className="mt-0.5 break-words font-semibold" data-testid={`round-${round.number}-skill`}>{skillLine}</p>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
@@ -724,6 +746,8 @@ function RevealedRound({
 function ResultPanel({ state }: { state: BattleState }) {
   const r = state.result!
   const players = { a: state.playerA, b: state.playerB }
+  // No battle bonus in one-round modes (Rapid Fire, D63): drop the column.
+  const showBonus = getMode(state.modeId)?.battleBonus ?? true
   return (
     <Panel className="border-primary/60 p-5">
       <section data-testid="battle-result" aria-label="Battle result">
@@ -743,7 +767,7 @@ function ResultPanel({ state }: { state: BattleState }) {
               <th className="py-1 font-semibold">Player</th>
               <th className="py-1 text-right font-semibold">Rounds won</th>
               <th className="py-1 text-right font-semibold">Round pts</th>
-              <th className="py-1 text-right font-semibold">Bonus</th>
+              {showBonus && <th className="py-1 text-right font-semibold">Bonus</th>}
               <th className="py-1 text-right font-semibold">Total</th>
             </tr>
           </thead>
@@ -755,7 +779,7 @@ function ResultPanel({ state }: { state: BattleState }) {
                 </td>
                 <td className="py-2 text-right tabular-nums">{r.roundWins[s]}</td>
                 <td className="py-2 text-right tabular-nums">{r.roundPoints[s]}</td>
-                <td className="py-2 text-right tabular-nums">+{r.bonus[s]}</td>
+                {showBonus && <td className="py-2 text-right tabular-nums">+{r.bonus[s]}</td>}
                 <td className="font-display py-2 text-right text-lg font-extrabold tabular-nums">{r.total[s]}</td>
               </tr>
             ))}

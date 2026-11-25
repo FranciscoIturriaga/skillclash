@@ -116,7 +116,7 @@ function MyBattles({ userId }: { userId: string }) {
         <EmptyState
           icon={<Trophy className="size-8 text-primary" />}
           title="No battles yet"
-          description="Challenge someone by their username. They get 3 rounds to prove it."
+          description="Challenge someone by their username: 3 rounds in Standard, or one quick round in Rapid Fire."
           action={{ label: 'Start your first battle', onClick: () => navigate('/challenge') }}
         />
       ) : (

@@ -8,6 +8,7 @@ import type { Side } from '../../battle/machine'
 import { formatCountdown, formatExpiresIn } from '../../battle/view'
 import { useNow } from '../../lib/useNow'
 import { useUsernames } from './usernames'
+import { getMode } from '../../battle/modes'
 
 export const sideText: Record<Side, string> = { a: 'text-side-a', b: 'text-side-b' }
 export const sideBg: Record<Side, string> = { a: 'bg-side-a', b: 'bg-side-b' }
@@ -107,6 +108,25 @@ export function ExpiresIn({ at, onExpire, className }: { at: number; onExpire?: 
     <span className={cn('inline-flex items-center gap-1 tabular-nums', className)} data-testid="invite-expires">
       <Timer className="size-3.5 opacity-70" aria-hidden />
       {left > 0 ? `Expires in ${formatExpiresIn(left)}` : 'Expired'}
+    </span>
+  )
+}
+
+/** "Rapid Fire" / "Demo" / "Test" pill for non-Standard battles (D63, D65). */
+export function ModeBadge({ modeId, className }: { modeId: string; className?: string }) {
+  const badge = getMode(modeId)?.badge
+  if (!badge) return null
+  const demo = modeId === 'demo'
+  return (
+    <span
+      data-testid="mode-badge"
+      className={cn(
+        'inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-bold uppercase leading-none tracking-wider',
+        demo ? 'bg-side-a/15 text-side-a' : 'bg-primary/15 text-primary',
+        className,
+      )}
+    >
+      {badge}
     </span>
   )
 }

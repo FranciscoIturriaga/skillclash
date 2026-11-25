@@ -35,6 +35,7 @@ import {
   type Outcome,
 } from '../battle/service'
 import { makeEventHook, notifyChallenged } from '../battle/notify'
+import { pickableModes } from '../battle/modes'
 
 type Ctx = ActionContext<Env>
 
@@ -49,7 +50,7 @@ function isDuplicate(r: ActionResult<unknown>): boolean {
 }
 
 /** URL-safe random id, e.g. `b7f3k2...` (16 chars). */
-function newBattleId(): string {
+export function newBattleId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(12))
   return 'b' + Array.from(bytes, (b) => (b % 36).toString(36)).join('') + Date.now().toString(36).slice(-3)
 }
@@ -145,8 +146,14 @@ const challenge: ActionHandler<Env> = async (ctx) => {
   }
   const opponentId = found.data.records[0].data.userId
 
-  // One open (invited or active) battle per pair, either direction (D47).
-  // Self-challenges fall through to createBattle's own refusal.
+  // Players pick Standard or Rapid Fire (test modes only from ?test=1);
+  // demo battles are only seeded by the owner (D65).
+  const modeId = typeof ctx.params.modeId === 'string' ? ctx.params.modeId : 'standard'
+  const mode = pickableModes(true).find((m) => m.id === modeId)
+  if (!mode) return toActionResult(err('invalid_mode', 'Pick Standard or Rapid Fire.'))
+
+  // One open (invited or active) battle per pair per mode, either direction
+  // (D47, D64). Self-challenges fall through to createBattle's own refusal.
   if (opponentId !== ctx.userId) {
     let between
     try {
@@ -154,8 +161,10 @@ const challenge: ActionHandler<Env> = async (ctx) => {
     } catch (e) {
       return toActionResult(err('storage_error', e instanceof Error ? e.message : String(e)))
     }
-    if (findOpenBattle(between, ctx.userId, opponentId, Date.now())) {
-      return toActionResult(err('open_battle_exists', `You already have an open battle with @${opponentName}.`))
+    if (findOpenBattle(between, ctx.userId, opponentId, Date.now(), mode.id)) {
+      return toActionResult(
+        err('open_battle_exists', `You already have an open ${mode.name} battle with @${opponentName}.`),
+      )
     }
   }
 
@@ -165,7 +174,7 @@ const challenge: ActionHandler<Env> = async (ctx) => {
     {
       playerA: ctx.userId,
       playerB: opponentId,
-      modeId: typeof ctx.params.modeId === 'string' ? ctx.params.modeId : 'standard',
+      modeId: mode.id,
       round1Skill,
     },
     now,
@@ -208,7 +217,7 @@ const challenge: ActionHandler<Env> = async (ctx) => {
   )
   if (!row.success) return toActionResult(err('storage_error', row.error))
 
-  for (const n of [1, 2, 3]) {
+  for (const { number: n } of state.rounds) {
     await ctx.tools.create('rounds', { battleId, number: n, totalVotes: 0 }, roundId(battleId, n))
   }
 
@@ -233,23 +242,27 @@ const acceptChallenge: ActionHandler<Env> = async (ctx) => {
   const round1Skill = await setterSkill(ctx.tools, battleId, current.value, 1)
   const dry = transition(current.value, { type: 'accept', by: ctx.userId, round2Skill, round1Skill }, now)
   if (!dry.ok) return toActionResult(err(dry.error.code, dry.error.message))
-  const video = parseVideo(ctx.params, ctx.userId)
-  if (!video.ok) return toActionResult(video)
+  // A one-round battle (Rapid Fire) has no round 2 to set: B accepts blind
+  // and round 1 opens straight away (D63).
+  if (current.value.rounds.length > 1) {
+    const video = parseVideo(ctx.params, ctx.userId)
+    if (!video.ok) return toActionResult(video)
 
-  const setterRow = await ctx.tools.create(
-    'submissions',
-    {
-      battleId,
-      round: 2,
-      playerId: ctx.userId,
-      side: 'b',
-      ...video.value,
-      skill: normalizeSkill(round2Skill)!,
-      revealed: 'no',
-    },
-    submissionId(battleId, 2, 'b'),
-  )
-  if (!setterRow.success) return toActionResult(err('storage_error', setterRow.error))
+    const setterRow = await ctx.tools.create(
+      'submissions',
+      {
+        battleId,
+        round: 2,
+        playerId: ctx.userId,
+        side: 'b',
+        ...video.value,
+        skill: normalizeSkill(round2Skill)!,
+        revealed: 'no',
+      },
+      submissionId(battleId, 2, 'b'),
+    )
+    if (!setterRow.success) return toActionResult(err('storage_error', setterRow.error))
+  }
 
   const r = await runAction(
     ctx.tools,
