@@ -1,0 +1,104 @@
+# Project notes
+_Last updated: 2026-11-26_
+
+## What this project is
+SkillClash: a video skill-battle app. Two players film themselves doing a skill over 3 rounds, other users vote, points go to profiles. Built for a DeepSpace build exercise, due **Wed Nov 25, 2026, 11:59 PM ET**.
+Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, Cloudflare Worker + Durable Objects backend, RecordRoom collections for data, R2 for files). Hosted at https://skillclash.app.space. Repo: https://github.com/FranciscoIturriaga/skillclash (public).
+
+## Current status
+- MVP is built and deployed: state machine, schemas and server actions, cron sweep (confirmed running in prod logs), files guard, full arena-themed UI, two emails (challenge, battle result).
+- **Set-and-match rules (D53, D54):** setters film first in rounds 1–2 (A with the challenge, B with the accept); blind invite; unrevealed skills live on hidden setter submission rows, not the public battle state. Old active battles finish under the old rules; old open invites can't be accepted.
+- `npx deepspace test run all --port 5181`: 20/20 browser tests and 155 unit tests pass (last run 2026-11-25, no flakes). Covers Settings (Voter C), signed-out /how-to-play and reload-splash smoke tests, online presence (D67), energy at 375px, a short Rapid Fire battle, and `tests/battle.spec.ts` (3-user set-and-match battle with network-level leak checks and feed reel checks, a 375px layout check, and a cancel-invite test that re-challenges the pair). `collab.spec.ts` API-status test has flaked once under load.
+- Test accounts (by name in the spec): "Player A" = fi-skillclash-a@deepspace.test, "Player B" = fi-skillclash-b@deepspace.test, "Voter C" = voter-c@deepspace.test (stored in `~/.deepspace/test-accounts.json`).
+- Demo battle route is deployed but the live demo is **not seeded** (secret `DEMO_SEED_TOKEN` not set yet; see Next steps).
+- Email delivery not yet confirmed in production logs (no real battle finished on prod). Test-mode battles send no email (D48).
+- **Latest deploy: 58b2e65 (2026-11-25), pushed to main**: reload splash + finished battles removed from home (D71); splash verified in live HTML. Earlier: a4c036e (past summary, back arrow, D70), 789432e (Settings, How to play, D69), 79d2ad4 (Reels feed, D68), c72ff7a (presence, D67), cbdb5a5 (energy, D66), cab6276 (Rapid Fire, D63–D65).
+- Feature work is declared done (user, 2026-11-25); remaining work is phone checks and the Next steps list.
+- **Not yet checked by a person:** everything in Next steps marked "On a phone", the D55 fix on a fully reloaded tab, and video playback in desktop Chrome (D43).
+- Decisions D1–D71 in `docs/DECISIONS.md`.
+
+## Recent changes
+- 2026-11-25: `README.md` for reviewers (commit 5068f04, docs only, no deploy): try-it steps, rules summary, DeepSpace features used/left out, key files, local commands, known limitations. Its "Try it" step points at the live Demo battle, which is not seeded yet.
+- 2026-11-25: D71: static reload splash in `index.html` (wordmark, inline CSS, hidden by `#root:not(:empty)~#splash`); home no longer shows finished battles at all (the D69 row is gone); empty state says "No active battles" for players with history.
+- 2026-11-25: D70: finished battle cards show `pastSummary()` ("Won · Standard · Nov 25", from the profile's side) instead of round 1's skill; back arrow left of the logo on every page but /home (`navigate(-1)` if `location.key !== 'default'`, else /home).
+- 2026-11-25: D69: home "Finished" group → one "Finished battles (N)" row to `/u/<name>`; Settings (username, email, Sign out, email toggle, energy, How to play, deletion contact); `email_prefs` + `setEmailPrefs`, notify logs `skipped (opted out)`; public `/how-to-play` (nav, hero, Settings); "Sign in / Sign up" copy. No account deletion (known gap).
+- 2026-11-25: Reels-style feed cards (D68): video fills the card (object-contain over a blurred canvas-frame backdrop), top gradient "Round N · Voting · m:ss" + skill (links to battle), bottom per-slide "@name" chip + "Vote" pill ("✓ Voted @name" after), mute icon, two dots, invisible edge tap zones + sr-only prev/next. No score or label row.
+- 2026-11-25: Online presence (D67): app-wide `usePresenceRoom('online')` (`src/components/game/presence.tsx`); challenge form shows "Online now" (past opponents online, most recent first, max 8, `src/battle/opponents.ts`), green dots in search, Rapid Fire offline warning (soft).
+- 2026-11-25: Energy (D66): max 5, challenge costs 1 (not demo), refund on decline/cancel/expire, +1 to the winner, +1 every 5h below 5 computed on read. `energy_entries` ledger (uniqueOn key) + public `player_energy`; bar in the home hero and challenge form; disabled "Next energy in …" at 0. Dev-only `devSetMyEnergy` action for specs.
+- 2026-11-25: Rapid Fire mode (D63): 1 round, 5 min invite, 5 min to match, 15 min vote, no bonus; rounds/windows/bonus are mode config. Pair rule is per mode (D64). Owner-only seeded demo battle (D65, `scripts/seed-demo.sh`). Mode badge on cards and battle page.
+- 2026-11-25: Phone layout (D59, D60): "Voting now" cards are one screen tall (`h-dvh` shell, `main` is a size container, list `h-[100cqh]`), the list snaps vertically on its own, the video track snaps one slide per swipe, and the video shrinks to fit at 9:16. `ScrollManager` resets `<main>` to the top on new navigations, sign-in and keyboard close, and restores it on back/forward. Hero copy: "Twenty-second clips".
+- 2026-11-25: iOS zoom fix: an unlayered rule in `styles.css` forces 16px on inputs/textarea/select on phones and touch devices (the SDK sign-in overlay uses 14px `text-sm`); viewport zoom untouched. Profile stat tiles are equal height with the number pinned to the bottom. Spec checks both at 375px.
+- 2026-11-25: Stored player stats (D56): `stats_entries` ledger (uniqueOn battleId+playerId) + public `player_stats`, written from the `battle_completed` hook and the repair path; one-time backfill from the cron (marker `app_migrations/stats-backfill-v1`). Profile reads `player_stats`. "Voting now" cards are reels with vote-from-feed (D57), sorted by combined points then deadline (D58).
+
+## Decisions
+- **GitHub is the app's source, permanently.** Never run `npx deepspace push/pull/clone`; they refuse with `source_managed_by_github`. Deploys ship the local working tree, including uncommitted files, so commit before `npx deepspace deploy`.
+- **All battle state transitions go in one pure module**, `src/battle/machine.ts`: (state + action) → new state or error, with unit tests. Server actions (`src/battle/service.ts`) and cron both call it.
+- **No compare-and-set in the SDK.** Concurrency guard: `battle_transitions` collection with `uniqueOn: ['battleId','fromVersion']`; only one simultaneous transition wins (D10).
+- **Votes go through the `castVote` action.** `votes` has `uniqueOn: ['roundId','voterId']`, member `create: false`, `read: 'own'`. Competitors and out-of-window votes are refused; tallies hidden until voting closes (D12).
+- **Deadlines:** cron task in `src/cron.ts` every minute plus lazy deadline checks in every action; both idempotent (D11). The sweep reads `active` and `invited` battles and uses `dueAction(state)`, not `nextDeadline` (older invite rows have it null).
+- **Video privacy:** videos upload to `app` scope under an unguessable key `videos/<uid>/<24 random chars>.<ext>`; the key stays on the hidden submission row until the submit window ends (reveal step), and the files proxy refuses non-uploaders until a revealed submission uses that key (D44). Limits 20 s / 50 MB (D8).
+- **File keys:** submissions store the relative key (`videos/...`); `getUrl` needs the full key, so always go through `fullFileKey()` in `VideoUploader.tsx` (D43).
+- **Emails** (`src/battle/notify.ts`): recipient emails read server-side only; actions never return raw `users` rows. Result email fires once via the `battle_completed` event of the winning transition.
+- **Setter rules (D53):** `state.rules = 2` marks new battles. Never put an unrevealed skill in the battle state: the server passes it into the action that opens the round (`accept.round1Skill`, `nextSkill`). Battles without `rules` are legacy (D54).
+- **Stats (D56):** never increment `player_stats`; write a ledger row then recount (`recordBattleStats` in `src/battle/stats.ts`). Any new completion path must call it.
+- **Scrolling (D59, D60):** the window is the only vertical scroller; never add an inner `overflow-y` scroller (nested scrollers broke iOS Safari). Top bar is sticky; resets go through `resetScroll()` (`window.scrollTo`, instant) in `src/components/ScrollManager.tsx`.
+- **Feed card height (D59, D68):** slots are `.feed-snap` (`100svh - --app-header-h`, `y proximity` snap on `<html>`). Since D68 everything on a card is an overlay on the full-bleed video; anything new must fit the top or bottom gradient without overlapping the dots or the vote row.
+- **Video inputs (D61):** `capture="environment"` on `VideoPicker`; friction only, not anti-cheat.
+- **Locked rounds** are one-line rows; their copy comes from `lockedRoundCopy()` in `src/battle/view.ts` and is worded per viewer (D55).
+- **Stale tabs:** `src/components/UpdateBanner.tsx` (prod only) compares the loaded `/assets/index-*.js` with the live one and offers Reload; it never forces a reload (D55).
+- **Modes (D63):** rounds, windows, bonus, emails and badge live in `src/battle/modes.ts`. The machine has no per-mode branches: use `isLastRound`, `isFreestyle`, `bonusForMode`. Round 3 only exists in 3-round battles. Pair rule is per mode (D64).
+- **Energy (D66):** never write `player_energy` directly; write an `energy_entries` row then `recountEnergy` (`src/battle/energy.ts`). Refund/win keys are `refund:<battleId>` / `win:<battleId>`; any new end-of-battle path must call `settleBattleEnergy`.
+- **Demo battle (D65):** to (re)seed the live demo battle: `scripts/seed-demo.sh` (reads the token from `~/.deepspace/skillclash-demo-token`; `APP_URL=http://localhost:5180` for local). It refuses with 409 while a demo battle is still open (voting lasts 7 days); run it again once that one has closed. To rotate the token: write a new one (24+ chars) to that file and `npx deepspace secrets set DEMO_SEED_TOKEN --stdin < ~/.deepspace/skillclash-demo-token`. Without the secret the route is a 404.
+- **Invites:** cancel (challenger only) and expiry (`inviteExpiresAt` in state; `inviteDeadline()` falls back to createdAt + window for old rows) both free the pair rule. No emails for either (D50, D51).
+- **Presence (D67):** use `useOnline()` from `src/components/game/presence.tsx` (SDK presence room). Don't use `usePresence`: in SDK 0.44.2 its roster never refreshes `lastSeenAt` for other tabs. Never list everyone online and never show last-seen times.
+- **Email opt-out (D69):** `email_prefs` (id = user id, `emails: 'on'|'off'`, no row = on), written only by `setEmailPrefs`. Any new email must check `person().emailsOn`.
+- **Reload splash (D71):** `#splash` lives in `index.html` after `#root` (never inside it: prerender.ts fills the exact empty `<div id="root"></div>`) and is hidden purely by CSS `#root:not(:empty)~#splash`. Keep it inline and under 1KB.
+- **Home shows no finished battles (D71):** past battles live only on the profile (`/u/<name>`). Don't add a finished list or link back to home.
+- **Usernames:** every signed-in user must pick one (UsernameGate in `src/components/game/usernames.tsx`). Profiles live at `/u/<username>`.
+- Out of scope for MVP: Stripe, followers, DMs, tournaments, rankings.
+
+## Next steps
+- [ ] On a phone: Safari pull-to-refresh shows the SkillClash splash instead of black; home shows no finished battles (D71).
+- [ ] On a phone: back arrow beside the logo and "Sign in / Sign up" at SE width; Back after opening a shared battle link goes to /home; profile past cards read "Won · Standard · Nov 25" (D70).
+- [ ] On a phone: Settings layout, toggle the email switch, How to play page readability, "Finished battles (N)" row on home, "Sign in / Sign up" fits the header at 375px (D69).
+- [ ] On a phone (SE-size and larger): Reels-style feed cards (D68): blurred backdrop visible beside a portrait/landscape clip, text readable over a bright clip, edge taps switch videos, middle tap pauses, mute icon works, vote → "✓ Voted @name" on both slides.
+- [ ] On two phones (accounts that have battled before): with B's app open, A's challenge form shows B under "Online now" (tap fills the field) and a green dot in search; close B's app → B leaves within seconds; Rapid Fire to offline B shows the soft warning and still sends; reopen B → back without reload; check iPhone backgrounding drops/restores B (D67).
+- [ ] On a phone: energy bar in the home hero at 5/5 (hero no taller), send a challenge → 4/5 + "Next refill in 4h 59m", cancel → 5/5 live; decline as B refunds A; win → +1; at 0 the button reads "Next energy in …" and the form shows the out-of-energy line (D66).
+- [ ] **Seed the live demo battle (not done yet; README tells reviewers to vote on it, and `POST /api/admin/seed-demo` still 404s on prod):** the agent's shell wasn't allowed to set secrets. Run `npx deepspace secrets set DEMO_SEED_TOKEN --stdin < ~/.deepspace/skillclash-demo-token`, then `scripts/seed-demo.sh` (expect HTTP 200 with a battleId). If the route still 404s right after setting the secret, redeploy.
+- [ ] On two phones: play a Rapid Fire battle (see D63).
+- [ ] On iPhone Safari: sign in (type in the fields so the keyboard opens), and check the home page opens with the top bar fully visible.
+- [ ] On a phone (SE and a larger one if possible): each "Voting now" card fits one screen with the vote row visible; one swipe lands exactly on the other video; vertical swipes snap card to card; the page above scrolls normally; back from a battle returns to the same spot.
+- [ ] Fully reload a battle page as B on an open invite: uploader button, new copy, three compact locked rows (D55).
+- [ ] After a deploy, leave a tab open and confirm the "SkillClash was updated" banner appears on refocus (D55).
+- [ ] On a phone: send a challenge (record in the form), accept with a recorded video, check B's invite shows no skill, and the "Match this" box in rounds 1 and 2.
+- [ ] Clean up unused setter videos: they stay in storage when a challenge is declined, cancelled or expires (D53).
+- [ ] On a phone: expand a past round (videos only, no outline on tap), check "Expires in" on a new invite, and test Cancel challenge → Keep it / Yes, cancel, then re-challenge.
+- [ ] Open the battle with the Photo Booth and iPhone clips in desktop Chrome and confirm both play (D43).
+- [ ] Play one real battle on a phone; check `npx deepspace logs --search email` for `[email] ... sent`.
+- [ ] Cron doesn't repair a stuck `invited` battle (D25); the next action on it does.
+- [ ] Server trusts the client-reported video duration; consider a server-side check.
+- [ ] HEVC iPhone videos may not play in desktop Chrome; no fallback UI yet (D49).
+
+## Gotchas
+- In zsh, `"$commit:refs/..."` is read as the `:r` modifier and breaks the refspec; write `"${commit}:refs/heads/claude-notes"`.
+- Keep `README.md` in sync when test counts, decisions (D-number range) or features change.
+- Local test data persists between runs. If a battle spec run dies midway, the next run's challenge fails with "You already have an open battle with @…". Fix: run `npx deepspace dev start --port 5180` until the logs show `battle-sweep active=0 invited=0` (test battles finish in ≤10 min), stop it, rerun. There is no `deepspace dev stop`; kill the 5180 process.
+- A synthetic touch swipe sent while a smooth `scrollTo` is still running is swallowed; specs wait for the reel track to settle first (`settledAt`).
+- A bug report that shows copy not in `src` is probably a stale tab: grep the live bundle (`curl /home`, then its `assets/index-*.js` and chunks) before changing code.
+- `challenge`/`acceptChallenge` now need a video; specs send challenges through the form (`sendChallenge` in `battle.spec.ts`). The spec's `sniff()` records responses and WS frames to prove a secret never reached a browser.
+- Round results in the browser spec are read from the summary chips (`round-N-summary`); the old `round-N-outcome` line was removed (D52). The cancel test and the full battle test share Player A/B, so `battle.spec.ts` runs serially.
+- **Port 5173 is used by another project** (HAVEN admin). Never kill it. Use `npx deepspace dev start --port 5180` and `npx deepspace test run --port 5181` (test run starts its own server).
+- `npx deepspace auth login` needs a real interactive terminal. Run it yourself (`! npx deepspace auth login`), not from an agent shell.
+- Battle spec runs use test mode, which sends no email (D48). Real battles cost $0.013 per email from owner credits.
+- To see where a video fails: `npx deepspace app files list --json` gives keys; request `/api/files/apps/<appId>/<key>?scope=app` with `Range: bytes=0-`. A 404 from our proxy means "not revealed"; a 403 "key outside scope" means the URL lacks the `apps/<appId>/` prefix. `videos/M2mP8…/biBS…mov` is an orphan upload (404 is expected).
+- Email (`email/send`) always sends from `notifications@updates.app.space`, whatever `from` you pass (D40).
+- Storage: the account shows 1.0 GiB for app files (docs claim 128 MiB on free). Keep demo videos small.
+- File uploads return 401 locally until the app has been deployed once (it has been).
+- `.claude/settings.local.json` is excluded via `.git/info/exclude` only, not `.gitignore`.
+- Client `useQuery` `where` matches data columns only, never the record id; that's why battles carry a `battleId` column. `where` is equality-only (home uses two queries for playerA/playerB).
+- Playwright's Chromium can't decode H.264: test videos must be WebM (`tests/fixtures/clip.webm`).
+- A thrown error in a cron task appears as a `log` line, not an `exception`. Check `npx deepspace logs --search cron`.
+- Dev builds expose `window.__callAction` (`src/lib/api.ts`, `import.meta.env.DEV` only) so specs can test server refusals.
+- The test-only battle mode appears in the challenge form only with `/challenge?test=1`.
+- Any field under 16px makes iOS Safari zoom in and stay zoomed; keep the 16px rule at the end of `styles.css` (it must stay outside `@layer` to beat the SDK's classes).
+- UI kit quirks: `Button` has no `asChild` (use `buttonVariants` on a `Link`); `EmptyState` `action` is `{label, onClick}`.
