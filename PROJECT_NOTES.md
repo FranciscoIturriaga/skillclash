@@ -14,9 +14,10 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - Email delivery not yet confirmed in production logs (no real battle finished on prod). Test-mode battles send no email (D48).
 - **Latest deploy: a4c036e (2026-11-25), pushed to main**, live bundle verified: past-battle summary line + top-bar back arrow (D70). Earlier: 789432e (Settings, How to play, D69), 79d2ad4 (Reels feed, D68), c72ff7a (presence, D67), cbdb5a5 (energy, D66), cab6276 (Rapid Fire, D63–D65), 1b4ff7f (Voting now heading jump), 294c7bc (window scrolling, camera inputs), 8349507, 045ced7, af741ed, dcaf8e9.
 - **Not yet checked by a person:** everything in Next steps marked "On a phone", the D55 fix on a fully reloaded tab, and video playback in desktop Chrome (D43).
-- Decisions D1–D70 in `docs/DECISIONS.md`.
+- Decisions D1–D71 in `docs/DECISIONS.md`.
 
 ## Recent changes
+- 2026-11-25: D71: static reload splash in `index.html` (wordmark, inline CSS, hidden by `#root:not(:empty)~#splash`); home no longer shows finished battles at all (the D69 row is gone); empty state says "No active battles" for players with history.
 - 2026-11-25: D70: finished battle cards show `pastSummary()` ("Won · Standard · Nov 25", from the profile's side) instead of round 1's skill; back arrow left of the logo on every page but /home (`navigate(-1)` if `location.key !== 'default'`, else /home).
 - 2026-11-25: D69: home "Finished" group → one "Finished battles (N)" row to `/u/<name>`; Settings (username, email, Sign out, email toggle, energy, How to play, deletion contact); `email_prefs` + `setEmailPrefs`, notify logs `skipped (opted out)`; public `/how-to-play` (nav, hero, Settings); "Sign in / Sign up" copy. No account deletion (known gap).
 - 2026-11-25: Reels-style feed cards (D68): video fills the card (object-contain over a blurred canvas-frame backdrop), top gradient "Round N · Voting · m:ss" + skill (links to battle), bottom per-slide "@name" chip + "Vote" pill ("✓ Voted @name" after), mute icon, two dots, invisible edge tap zones + sr-only prev/next. No score or label row.
@@ -54,6 +55,7 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - Out of scope for MVP: Stripe, followers, DMs, tournaments, rankings.
 
 ## Next steps
+- [ ] On a phone: Safari pull-to-refresh shows the SkillClash splash instead of black; home shows no finished battles (D71).
 - [ ] On a phone: back arrow beside the logo and "Sign in / Sign up" at SE width; Back after opening a shared battle link goes to /home; profile past cards read "Won · Standard · Nov 25" (D70).
 - [ ] On a phone: Settings layout, toggle the email switch, How to play page readability, "Finished battles (N)" row on home, "Sign in / Sign up" fits the header at 375px (D69).
 - [ ] On a phone (SE-size and larger): Reels-style feed cards (D68): blurred backdrop visible beside a portrait/landscape clip, text readable over a bright clip, edge taps switch videos, middle tap pauses, mute icon works, vote → "✓ Voted @name" on both slides.

@@ -70,6 +70,14 @@ test.describe('Smoke tests', () => {
     await expect(page.getByTestId('nav-sign-in-button')).toHaveText('Sign in / Sign up')
   })
 
+  test('reload splash: in the HTML shell, hidden once the app mounts', async ({ page }) => {
+    const html = await (await page.request.get('/how-to-play')).text()
+    expect(html).toContain('id="splash"')
+    await page.goto('/how-to-play')
+    await expect(page.getByRole('heading', { name: 'How to play', level: 1 })).toBeVisible({ timeout: 15000 })
+    await expect(page.locator('#splash')).toBeHidden()
+  })
+
   test('back arrow: fits at 375px, goes home when opened directly, back in app history otherwise', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 })
     await page.goto('/how-to-play')

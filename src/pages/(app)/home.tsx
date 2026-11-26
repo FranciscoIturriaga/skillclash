@@ -1,13 +1,13 @@
 /**
  * Home feed: "Voting now" for everyone, plus "My battles" grouped by what the
  * signed-in player needs to do (invites, your turn, in progress, sent). Finished
- * battles are one link row to the player's profile (D69).
+ * battles never appear here: they live on the profile's Past battles (D71).
  */
 
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useNavigationType } from 'react-router-dom'
 import { AuthOverlay, useAuth, useQuery } from 'deepspace'
-import { ChevronDown, ChevronRight, Flame, HelpCircle, Swords, Trophy, Zap } from 'lucide-react'
+import { ChevronDown, Flame, HelpCircle, Swords, Trophy, Zap } from 'lucide-react'
 import { Button, EmptyState, buttonVariants, cn } from '@/components/ui'
 import type { BattleRowData, MyBucket } from '../../battle/view'
 import { bucketFor, sortVotingNow } from '../../battle/view'
@@ -133,9 +133,9 @@ function MyBattles({ userId }: { userId: string }) {
     return map
   }, [asA.records, asB.records, userId])
 
-  const total = [...grouped.values()].reduce((n, l) => n + l.length, 0)
+  // Finished battles are profile-only (D71); they only change the empty-state title.
   const finished = grouped.get('finished')?.length ?? 0
-  const { username } = useMyUsername()
+  const total = [...grouped.entries()].reduce((n, [b, l]) => (b === 'finished' ? n : n + l.length), 0)
 
   return (
     <section data-testid="my-battles" className="space-y-6">
@@ -144,7 +144,7 @@ function MyBattles({ userId }: { userId: string }) {
       ) : total === 0 ? (
         <EmptyState
           icon={<Trophy className="size-8 text-primary" />}
-          title="No battles yet"
+          title={finished > 0 ? 'No active battles' : 'No battles yet'}
           description="Challenge someone by their username: 3 rounds in Standard, or one quick round in Rapid Fire."
           action={{ label: 'Start your first battle', onClick: () => navigate('/challenge') }}
         />
@@ -178,19 +178,6 @@ function MyBattles({ userId }: { userId: string }) {
             </div>
           )
         })}
-        {finished > 0 && username && (
-          // Past battles live on the profile; home keeps one compact row (D69).
-          <Link
-            to={`/u/${username}`}
-            data-testid="finished-link"
-            className="flex min-h-11 items-center justify-between rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:border-primary/60 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-          >
-            <span>
-              Finished battles <span className="text-muted-foreground">({finished})</span>
-            </span>
-            <ChevronRight className="size-4 text-muted-foreground" aria-hidden />
-          </Link>
-        )}
         </>
       )}
     </section>

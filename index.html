@@ -24,10 +24,15 @@
     <style>
       html { background-color: #07080a; color-scheme: dark; }
       /* Add one line per theme you create, mirroring its --color-background. */
+      /* Reload splash: shown until React puts anything in #root, never again in-app. */
+      #splash{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#07080a;color:#fff;font:italic 800 2rem 'Barlow Condensed','Arial Narrow',system-ui,sans-serif;letter-spacing:.04em;text-transform:uppercase}
+      #splash b{color:#c8ff2e;font-weight:inherit}
+      #root:not(:empty)~#splash{display:none}
     </style>
   </head>
   <body>
     <div id="root"></div>
+    <div id="splash" aria-hidden="true">Skill<b>Clash</b></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -177,13 +177,12 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   // challenge between the pair (D47). B declines any pending invites first.
   const myBattlesLoaded = () =>
     expect(
-      // Finished battles are only a link row on home now (D69).
+      // Finished battles never show on home (D71).
       b.page
         .getByTestId('my-battles')
         .getByTestId('battle-card')
         .first()
-        .or(b.page.getByTestId('finished-link'))
-        .or(b.page.getByText('No battles yet')),
+        .or(b.page.getByText(/^No (active )?battles( yet)?$/)),
     ).toBeVisible({ timeout: 20_000 })
   await b.page.goto('/home')
   await myBattlesLoaded()
@@ -651,11 +650,10 @@ test('cancel an invite, then the pair can challenge again', async ({ users }) =>
   await homeEnergy(a.page, '5/5')
   await expect(a.page.getByTestId('home-hero').getByTestId('energy-refill')).toHaveCount(0)
 
-  // Finished battles are one compact row linking to the profile, not a list (D69).
+  // Finished battles never show on home, not even as a link row (D71).
   await expect(a.page.getByTestId('group-finished')).toHaveCount(0)
-  const finished = a.page.getByTestId('finished-link')
-  await expect(finished).toHaveText(/Finished battles \(\d+\)/)
-  await expect(finished).toHaveAttribute('href', `/u/${nameA}`)
+  await expect(a.page.getByTestId('finished-link')).toHaveCount(0)
+  await expect(a.page.getByText(/Finished battles/)).toHaveCount(0)
 
   // B sees it as cancelled and can no longer accept it.
   await b.page.goto(battleUrl)
@@ -693,8 +691,7 @@ test('Rapid Fire: one round, blind accept with the clock starting at once, no bo
         .getByTestId('my-battles')
         .getByTestId('battle-card')
         .first()
-        .or(b.page.getByTestId('finished-link'))
-        .or(b.page.getByText('No battles yet')),
+        .or(b.page.getByText(/^No (active )?battles( yet)?$/)),
     ).toBeVisible({
       timeout: 20_000,
     })
