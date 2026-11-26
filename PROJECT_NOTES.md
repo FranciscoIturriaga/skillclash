@@ -27,7 +27,6 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - 2026-11-25: Stored player stats (D56): `stats_entries` ledger (uniqueOn battleId+playerId) + public `player_stats`, written from the `battle_completed` hook and the repair path; one-time backfill from the cron (marker `app_migrations/stats-backfill-v1`). Profile reads `player_stats`. "Voting now" cards are reels with vote-from-feed (D57), sorted by combined points then deadline (D58).
 - 2026-11-25: D55: the accept-panel bug report was a stale tab (old JS, new server). Added a production-only "SkillClash was updated, Reload" banner, compact one-line locked rounds with per-viewer copy (`lockedRoundCopy`), and new accept panel copy.
 - 2026-11-25: Set-and-match rounds 1–2 (D53): A must film round 1's skill to challenge, B must name and film round 2's to accept; B's invite is blind; replicator-only deadlines; "Match this" box. Skills hidden server-side on setter submission rows; `publicSubmissions()` decides reveals. Old battles: D54.
-- 2026-11-25: Challenger can cancel an unanswered invite (`cancelled`, D50). Invites expire after the mode's `inviteWindowMs` (24h Standard, 5 min Test) via cron + lazy check (`expired`, D51). Expanded past rounds show only videos/skills; missed players get a one-line row; summary has keyboard-only focus ring (D52).
 
 ## Decisions
 - **GitHub is the app's source, permanently.** Never run `npx deepspace push/pull/clone`; they refuse with `source_managed_by_github`. Deploys ship the local working tree, including uncommitted files, so commit before `npx deepspace deploy`.
@@ -62,8 +61,7 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - [ ] **Seed the live demo battle (not done yet):** the agent's shell wasn't allowed to set secrets. Run `npx deepspace secrets set DEMO_SEED_TOKEN --stdin < ~/.deepspace/skillclash-demo-token`, then `scripts/seed-demo.sh` (expect HTTP 200 with a battleId). If the route still 404s right after setting the secret, redeploy.
 - [ ] On two phones: play a Rapid Fire battle (see D63).
 - [ ] On iPhone Safari: sign in (type in the fields so the keyboard opens), and check the home page opens with the top bar fully visible.
-- [ ] On a phone (SE and a larger one if possible): each "Voting now" card shows header, label, video and "Vote for this" without scrolling; one swipe lands exactly on the other video; vertical swipes snap card to card; the page above scrolls normally; back from a battle returns to the same spot.
-- [ ] On a phone: swipe between the two videos on a "Voting now" card, unmute, vote, and check the card's header still opens the battle page.
+- [ ] On a phone (SE and a larger one if possible): each "Voting now" card fits one screen with the vote row visible; one swipe lands exactly on the other video; vertical swipes snap card to card; the page above scrolls normally; back from a battle returns to the same spot.
 - [ ] Fully reload a battle page as B on an open invite: uploader button, new copy, three compact locked rows (D55).
 - [ ] After a deploy, leave a tab open and confirm the "SkillClash was updated" banner appears on refocus (D55).
 - [ ] On a phone: send a challenge (record in the form), accept with a recorded video, check B's invite shows no skill, and the "Match this" box in rounds 1 and 2.
