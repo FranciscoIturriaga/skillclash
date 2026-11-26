@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createBattle, transition, type BattleAction, type BattleState, type MachineResult } from './machine'
-import { activeDeadline, bucketFor, formatCountdown, formatExpiresIn, inviteExpiry, lockedRoundCopy, roundDisplayOrder, sortVotingNow, runningScore, statusLabel } from './view'
+import { activeDeadline, bucketFor, formatCountdown, formatExpiresIn, inviteExpiry, lockedRoundCopy, pastSummary, roundDisplayOrder, sortVotingNow, runningScore, statusLabel } from './view'
 import { MODES } from './modes'
 
 const A = 'user_a'
@@ -155,5 +155,34 @@ describe('lockedRoundCopy (D55)', () => {
     legacy.rounds = [{ ...legacy.rounds[0], skill: 'Juggling' }, legacy.rounds[1], legacy.rounds[2]]
     expect(lockedRoundCopy(legacy, 1, 'b', names)).toBe('Juggling. Opens when the challenge is accepted')
     expect(lockedRoundCopy(legacy, 2, null, names)).toBe('Opens after round 1')
+  })
+})
+
+describe('pastSummary (past battle cards)', () => {
+  it('is null while the battle is live', () => {
+    expect(pastSummary(invited(), A, 'UTC')).toBeNull()
+    expect(pastSummary(active(), A, 'UTC')).toBeNull()
+  })
+
+  it("gives the result from the profile's side, the mode and the finish date", () => {
+    let s = active()
+    s = playRound(s, 3, 1)
+    s = playRound(s, 0, 0)
+    s = playRound(s, 2, 2)
+    const day = new Date(s.completedAt!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+    expect(pastSummary(s, A, 'UTC')).toBe(`Won · Test · ${day}`)
+    expect(pastSummary(s, B, 'UTC')).toBe(`Lost · Test · ${day}`)
+    expect(pastSummary(s, C, 'UTC')).toBe(`Final · Test · ${day}`)
+  })
+
+  it('says Draw, Declined, Cancelled and Expired', () => {
+    let s = active()
+    for (let i = 0; i < 3; i++) s = playRound(s, 1, 1)
+    expect(pastSummary(s, A, 'UTC')).toMatch(/^Draw · Test · /)
+    const std = ok(createBattle({ playerA: A, playerB: B, modeId: 'standard', round1Skill: 'Juggling' }, T0))
+    expect(pastSummary(step(std, { type: 'decline', by: B }, T0 + 1000), A, 'UTC')).toBe('Declined · Standard · Nov 24')
+    expect(pastSummary(step(std, { type: 'cancel', by: A }, T0 + 1000), B, 'UTC')).toBe('Cancelled · Standard · Nov 24')
+    const rapid = ok(createBattle({ playerA: A, playerB: B, modeId: 'rapid', round1Skill: 'Juggling' }, T0))
+    expect(pastSummary(step(rapid, { type: 'inviteExpiry' }, T0 + 10 * 60_000), B, 'UTC')).toBe('Expired · Rapid Fire · Nov 24')
   })
 })

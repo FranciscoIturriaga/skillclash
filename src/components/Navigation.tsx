@@ -9,9 +9,9 @@
  */
 
 import { useState, useEffect } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { AuthOverlay, useAuthProfileReady, signOut } from 'deepspace'
-import { ChevronDown, LogOut, Menu, X } from 'lucide-react'
+import { ArrowLeft, ChevronDown, LogOut, Menu, X } from 'lucide-react'
 import { APP_NAME } from '../constants'
 import type { Role } from '../constants'
 import { nav } from '../nav'
@@ -31,6 +31,12 @@ import {
 export default function Navigation() {
   const { isLoaded, isSignedIn, user, userLoading } = useAuthProfileReady({ requireUser: true })
   const location = useLocation()
+  const navigate = useNavigate()
+  // Back arrow everywhere but home (the landing page has no app chrome).
+  // React Router gives the first entry of a tab the key 'default', so any
+  // other key means there's an in-app page to go back to; otherwise go home.
+  const showBack = location.pathname !== '/home' && location.pathname !== '/'
+  const goBack = () => (location.key !== 'default' ? navigate(-1) : navigate('/home'))
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showAuthModal, setShowAuthModal] = useState(false)
 
@@ -70,8 +76,20 @@ export default function Navigation() {
   return (
     <>
       <nav data-testid="app-navigation" className="border-b border-border bg-background">
-        <div className="mx-auto flex h-12 max-w-7xl items-center gap-4 px-4">
-          <Link to="/home" className="font-display text-lg font-extrabold uppercase italic tracking-wide text-foreground" aria-label={APP_NAME}>
+        {/* gap-2 on phones so the back arrow, logo, sign-in button and menu fit at 375px. */}
+        <div className="mx-auto flex h-12 max-w-7xl items-center gap-2 px-4 md:gap-4">
+          {showBack && (
+            <button
+              type="button"
+              data-testid="nav-back"
+              aria-label="Back"
+              onClick={goBack}
+              className="-ml-3 inline-flex size-11 shrink-0 items-center justify-center rounded-full text-foreground hover:bg-card focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
+            >
+              <ArrowLeft className="size-5" aria-hidden />
+            </button>
+          )}
+          <Link to="/home" className="font-display shrink-0 text-lg font-extrabold uppercase italic tracking-wide text-foreground" aria-label={APP_NAME} data-testid="nav-logo">
             Skill<span className="text-primary">Clash</span>
           </Link>
 

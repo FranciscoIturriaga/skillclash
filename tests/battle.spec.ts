@@ -589,6 +589,15 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   const tiles = c.page.getByTestId('profile-stat-tile')
   await expect(tiles).toHaveCount(6)
   await expect(tiles.nth(5).locator('dd')).not.toHaveText('–', { timeout: 20_000 })
+
+  // Past battle cards: a summary line from the profile's side instead of a
+  // skill: "Won · Test · Nov 25". Score and players stay.
+  const pastCard = c.page.locator(`a[data-testid="battle-card"][href="${battleUrl}"]`)
+  await expect(pastCard.getByTestId('battle-card-summary')).toHaveText(/^(Won|Lost|Draw) · Test · [A-Z][a-z]{2} \d{1,2}$/)
+  await expect(pastCard).not.toContainText(SKILL1)
+  await expect(pastCard).toContainText(nameA)
+  await expect(pastCard).toContainText(nameB)
+  await expect(pastCard).toContainText(/\d+\s*–\s*\d+/)
   const boxes = await tiles.evaluateAll((els) =>
     els.map((el) => ({ h: el.getBoundingClientRect().height, num: el.querySelector('dd')!.getBoundingClientRect().bottom })),
   )
@@ -745,10 +754,11 @@ test('Rapid Fire: one round, blind accept with the clock starting at once, no bo
   await expect(result).not.toContainText('Bonus')
   expect(await sectionOrder(c.page)).toEqual(['battle-result', 'round-1'])
 
-  // Profile history shows it with the badge.
+  // Profile history names the mode in the summary line, from B's side (B won).
   await c.page.goto(`/u/${nameB}`)
   const card = c.page.locator(`a[href="/battle/${id}"]`).first()
-  await expect(card.getByTestId('mode-badge')).toHaveText('Rapid Fire', { timeout: 20_000 })
+  await expect(card.getByTestId('battle-card-summary')).toHaveText(/^Won · Rapid Fire test · /, { timeout: 20_000 })
+  await expect(card).not.toContainText(SKILL)
 
   // Energy (D66): accepting was free and B won, so B went 3 → 4. A paid 1.
   await homeEnergy(b.page, '4/5')

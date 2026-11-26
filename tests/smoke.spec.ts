@@ -70,6 +70,38 @@ test.describe('Smoke tests', () => {
     await expect(page.getByTestId('nav-sign-in-button')).toHaveText('Sign in / Sign up')
   })
 
+  test('back arrow: fits at 375px, goes home when opened directly, back in app history otherwise', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 })
+    await page.goto('/how-to-play')
+    const back = page.getByTestId('nav-back')
+    await expect(back).toBeVisible({ timeout: 15000 })
+    await expect(back).toHaveAttribute('aria-label', 'Back')
+    const signIn = page.getByTestId('nav-sign-in-button')
+    await expect(signIn).toBeVisible()
+    const [b, logo, btn] = await Promise.all([back.boundingBox(), page.getByTestId('nav-logo').boundingBox(), signIn.boundingBox()])
+    expect(b!.width).toBeGreaterThanOrEqual(44)
+    expect(b!.height).toBeGreaterThanOrEqual(44)
+    expect(b!.x).toBeGreaterThanOrEqual(0)
+    expect(b!.x + b!.width).toBeLessThanOrEqual(logo!.x)
+    expect(logo!.x + logo!.width).toBeLessThan(btn!.x)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0)
+    // Opened directly: no in-app page behind it, so Back goes to /home, which has no arrow.
+    await back.click()
+    await expect(page).toHaveURL(/\/home$/)
+    await expect(page.getByTestId('nav-back')).toHaveCount(0)
+
+    // In-app history: home → How to play → menu → Settings, then Back twice.
+    await page.getByTestId('hero-how-to-play').click()
+    await expect(page).toHaveURL(/\/how-to-play$/)
+    await page.getByRole('button', { name: 'Toggle menu' }).click()
+    await page.getByRole('link', { name: 'Settings' }).click()
+    await expect(page).toHaveURL(/\/settings$/)
+    await page.getByTestId('nav-back').click()
+    await expect(page).toHaveURL(/\/how-to-play$/)
+    await page.getByTestId('nav-back').click()
+    await expect(page).toHaveURL(/\/home$/)
+  })
+
   test('unknown route shows 404', async ({ page }) => {
     await page.goto('/nonexistent-page-xyz')
     await waitForApp(page)

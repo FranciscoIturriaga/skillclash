@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { currentRoundState, type BattleState } from '../../battle/machine'
-import { activeDeadline, inviteExpiry, runningScore, statusLabel, roundLabel } from '../../battle/view'
+import { activeDeadline, inviteExpiry, pastSummary, runningScore, statusLabel, roundLabel } from '../../battle/view'
 import { Countdown, ExpiresIn, LiveDot, ModeBadge, PlayerTag } from './bits'
 
 /** One battle in a feed: "@a VS @b", status, score and the live countdown. */
@@ -13,6 +13,7 @@ export function BattleCard({
   highlight,
   className,
   compact,
+  perspectiveId,
 }: {
   battleId: string
   state: BattleState
@@ -21,6 +22,8 @@ export function BattleCard({
   className?: string
   /** Tighter spacing, for the full-screen feed card (D59). */
   compact?: boolean
+  /** Whose result a finished card's summary line shows (the profile's player); defaults to the viewer. */
+  perspectiveId?: string | null
 }) {
   const deadline = activeDeadline(state)
   const expiresAt = inviteExpiry(state)
@@ -29,6 +32,8 @@ export function BattleCard({
   const voting = deadline?.kind === 'vote'
   // The round being played or voted on right now; round 1 before the battle starts.
   const shownRound = currentRoundState(state) ?? state.rounds[0]
+  // Finished battles show "Won · Standard · Nov 25" instead of a skill.
+  const summary = pastSummary(state, perspectiveId ?? viewerId)
 
   return (
     <Link
@@ -71,10 +76,16 @@ export function BattleCard({
       </div>
 
       <div className={cn('flex items-center justify-between text-sm text-muted-foreground', compact ? 'mt-1' : 'mt-3')}>
-        <span className="flex min-w-0 items-center gap-2">
-          <ModeBadge modeId={state.modeId} />
-          <span className="truncate">{roundLabel(shownRound)}</span>
-        </span>
+        {summary ? (
+          <span className="truncate" data-testid="battle-card-summary">
+            {summary}
+          </span>
+        ) : (
+          <span className="flex min-w-0 items-center gap-2">
+            <ModeBadge modeId={state.modeId} />
+            <span className="truncate">{roundLabel(shownRound)}</span>
+          </span>
+        )}
         <ChevronRight className="size-4 shrink-0 transition-transform group-hover:translate-x-0.5" aria-hidden />
       </div>
     </Link>

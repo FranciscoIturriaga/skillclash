@@ -14,6 +14,7 @@ import {
   type RoundState,
   type Side,
 } from './machine'
+import { getMode } from './modes'
 
 export interface BattleRowData {
   battleId: string
@@ -80,6 +81,33 @@ export function statusLabel(state: BattleState, userId: string | null): string {
       return `${prefix}Filming`
     }
   }
+}
+
+/** True once a battle can't change any more (played out, declined, cancelled or expired). */
+export function isFinished(state: Pick<BattleState, 'status'>): boolean {
+  return state.status !== 'invited' && state.status !== 'active'
+}
+
+/**
+ * The summary line on a finished battle's card, from `perspectiveId`'s side
+ * (the profile being viewed): "Won · Standard · Nov 25". Round skills are not
+ * shown on past cards. The date is when it finished (completed, or when the
+ * invite was answered, cancelled or expired). Null for live battles.
+ */
+export function pastSummary(state: BattleState, perspectiveId: string | null, timeZone?: string): string | null {
+  if (!isFinished(state)) return null
+  const side = perspectiveId ? sideOf(state, perspectiveId) : null
+  let result: string
+  if (state.status === 'complete') {
+    const w = state.result?.winner
+    result = w === 'draw' ? 'Draw' : !w || !side ? 'Final' : w === side ? 'Won' : 'Lost'
+  } else {
+    result = state.status === 'declined' ? 'Declined' : state.status === 'cancelled' ? 'Cancelled' : 'Expired'
+  }
+  const mode = getMode(state.modeId)?.name ?? 'Standard'
+  const at = state.completedAt ?? state.respondedAt ?? state.createdAt
+  const date = new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone })
+  return `${result} · ${mode} · ${date}`
 }
 
 /** The deadline a countdown should show right now, or null. */

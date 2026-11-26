@@ -98,7 +98,7 @@ function Profile({ userId, username }: { userId: string; username: string }) {
         ) : (
           <div className="space-y-3">
             {past.map((b) => (
-              <BattleCard key={b.id} battleId={b.id} state={b.row.state} viewerId={me} />
+              <BattleCard key={b.id} battleId={b.id} state={b.row.state} viewerId={me} perspectiveId={userId} />
             ))}
           </div>
         )}
