@@ -153,6 +153,11 @@ Each profile shows:
 - total points
 - past battles
 
+## Emails
+
+- Two emails: "You've been challenged" (to the opponent) and the battle result (to both players). Test and demo battles send none.
+- Each player can turn both off in Settings ("Email me about challenges and results", on by default). The server skips the email when it's off.
+
 ## Out of scope for MVP
 
 - Stripe / payments

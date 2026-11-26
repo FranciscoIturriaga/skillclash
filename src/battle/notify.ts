@@ -25,16 +25,20 @@ import { getMode } from './modes'
 interface Person {
   email: string | null
   username: string
+  /** False when the player turned emails off in Settings (D69). No row = on. */
+  emailsOn: boolean
 }
 
 async function person(tools: ActionTools, userId: string): Promise<Person> {
-  const [u, n] = await Promise.all([
+  const [u, n, p] = await Promise.all([
     tools.get<{ email?: string } & Record<string, unknown>>('users', userId),
     tools.get<{ username?: string } & Record<string, unknown>>('usernames', userId),
+    tools.get<{ emails?: string } & Record<string, unknown>>('email_prefs', userId),
   ])
   const email = u.success && typeof u.data.record.data.email === 'string' ? u.data.record.data.email : null
   const username = n.success && typeof n.data.record.data.username === 'string' ? n.data.record.data.username : 'a player'
-  return { email, username }
+  const emailsOn = !(p.success && p.data.record.data.emails === 'off')
+  return { email, username, emailsOn }
 }
 
 function esc(s: string): string {
@@ -78,6 +82,7 @@ export async function notifyChallenged(env: Env, tools: ActionTools, battleId: s
   if (!emailsEnabledFor(state)) return console.log(`[email] challenged ${battleId} skipped (${state.modeId} mode)`)
   try {
     const [challenger, opponent] = await Promise.all([person(tools, state.playerA), person(tools, state.playerB)])
+    if (!opponent.emailsOn) return console.log(`[email] challenged ${battleId} skipped (opted out)`)
     if (!opponent.email) return console.warn(`[email] challenged ${battleId}: opponent has no email`)
     const url = `${siteUrl(env)}/battle/${battleId}`
     // No skill name here: round 1's skill stays hidden until B accepts (D53).
@@ -96,7 +101,7 @@ export async function notifyChallenged(env: Env, tools: ActionTools, battleId: s
   }
 }
 
-async function notifyResult(env: Env, tools: ActionTools, battleId: string, state: BattleState): Promise<void> {
+export async function notifyResult(env: Env, tools: ActionTools, battleId: string, state: BattleState): Promise<void> {
   const result = state.result
   if (!result) return
   if (!emailsEnabledFor(state)) return console.log(`[email] result ${battleId} skipped (${state.modeId} mode)`)
@@ -108,6 +113,10 @@ async function notifyResult(env: Env, tools: ActionTools, battleId: string, stat
   for (const side of ['a', 'b'] as const) {
     const me = people[side]
     const them = people[side === 'a' ? 'b' : 'a']
+    if (!me.emailsOn) {
+      console.log(`[email] result ${battleId} side=${side} skipped (opted out)`)
+      continue
+    }
     if (!me.email) continue
     const headline = result.winner === 'draw' ? 'It was a draw' : result.winner === side ? 'You won' : 'You lost'
     const mine = result.total[side]

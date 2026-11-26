@@ -261,6 +261,25 @@ export const appMigrationsSchema: CollectionSchema = {
   },
 }
 
+/**
+ * Email preferences, one row per player (record id = user id). No row means
+ * emails are on. Each player reads only their own row; only the
+ * `setEmailPrefs` action writes it. notify.ts reads it before every send (D69).
+ */
+export const emailPrefsSchema: CollectionSchema = {
+  name: 'email_prefs',
+  columns: [
+    { name: 'userId', storage: 'text', interpretation: 'plain', required: true, immutable: true },
+    { name: 'emails', storage: 'text', interpretation: { kind: 'select', options: ['on', 'off'] }, default: 'on' },
+  ],
+  ownerField: 'userId',
+  permissions: {
+    viewer: { read: 'own', ...NO_WRITES },
+    member: { read: 'own', ...NO_WRITES },
+    admin: { read: true, ...NO_WRITES },
+  },
+}
+
 export const battleSchemas: CollectionSchema[] = [
   usernamesSchema,
   battlesSchema,
@@ -273,4 +292,5 @@ export const battleSchemas: CollectionSchema[] = [
   playerEnergySchema,
   energyEntriesSchema,
   appMigrationsSchema,
+  emailPrefsSchema,
 ]

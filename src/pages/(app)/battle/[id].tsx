@@ -731,7 +731,7 @@ function RevealedRound({
           {mySide && <span className="text-muted-foreground">Players can't vote in their own battle.</span>}
           {!signedIn && (
             <Button variant="outline" size="sm" onClick={() => setShowAuth(true)}>
-              Sign in to vote
+              Sign in or create an account to vote
             </Button>
           )}
         </div>

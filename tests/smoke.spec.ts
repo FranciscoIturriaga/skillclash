@@ -63,6 +63,13 @@ test.describe('Smoke tests', () => {
     await expect(page.getByTestId('nav-user-name')).toHaveCount(0)
   })
 
+  test('how to play loads signed out and the header offers sign up (D69)', async ({ page }) => {
+    await page.goto('/how-to-play')
+    await expect(page.getByRole('heading', { name: 'How to play', level: 1 })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByText('Rapid Fire: 1 round')).toBeVisible()
+    await expect(page.getByTestId('nav-sign-in-button')).toHaveText('Sign in / Sign up')
+  })
+
   test('unknown route shows 404', async ({ page }) => {
     await page.goto('/nonexistent-page-xyz')
     await waitForApp(page)

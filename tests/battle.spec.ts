@@ -177,7 +177,13 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   // challenge between the pair (D47). B declines any pending invites first.
   const myBattlesLoaded = () =>
     expect(
-      b.page.getByTestId('my-battles').getByTestId('battle-card').first().or(b.page.getByText('No battles yet')),
+      // Finished battles are only a link row on home now (D69).
+      b.page
+        .getByTestId('my-battles')
+        .getByTestId('battle-card')
+        .first()
+        .or(b.page.getByTestId('finished-link'))
+        .or(b.page.getByText('No battles yet')),
     ).toBeVisible({ timeout: 20_000 })
   await b.page.goto('/home')
   await myBattlesLoaded()
@@ -553,9 +559,11 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
 
   // Scroll: the window scrolls; a new navigation starts at the top; back
   // restores the position (D60). A signed-in load opens with the top bar at the top.
+  // Runs on A's profile: home lists no finished battles any more (D69), so it
+  // may be too short to scroll; the profile lists them all.
   await a.page.setViewportSize({ width: 375, height: 667 })
-  await a.page.goto('/home')
-  await expect(a.page.getByTestId('battle-card').first()).toBeVisible({ timeout: 20_000 })
+  await a.page.goto(`/u/${nameA}`)
+  await expect(a.page.getByTestId('battle-card').nth(1)).toBeVisible({ timeout: 20_000 })
   expect(await a.page.evaluate(() => window.scrollY)).toBe(0)
   expect((await a.page.getByTestId('app-header').boundingBox())!.y).toBe(0)
   expect(await verticalScrollers(a.page)).toEqual([])
@@ -572,7 +580,7 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   await a.page.waitForURL(/\/battle\//)
   await expect.poll(windowY).toBe(0)
   await a.page.goBack()
-  await a.page.waitForURL(/\/home$/)
+  await a.page.waitForURL(/\/u\//)
   await expect.poll(windowY, { timeout: 5_000 }).toBeGreaterThan(before - 5)
 
   // Profile tiles at 375px: same height, numbers on one line per row even
@@ -602,7 +610,7 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
 test('cancel an invite, then the pair can challenge again', async ({ users }) => {
   test.setTimeout(120_000)
   const [a, b] = await users(['Player A', 'Player B'])
-  await ensureUsername(a.page, a.email)
+  const nameA = await ensureUsername(a.page, a.email)
   const nameB = await ensureUsername(b.page, b.email)
   await setEnergy(a.page, 5)
 
@@ -633,6 +641,12 @@ test('cancel an invite, then the pair can challenge again', async ({ users }) =>
   // Cancelling refunds it, live on the same page; full again, so no timer.
   await homeEnergy(a.page, '5/5')
   await expect(a.page.getByTestId('home-hero').getByTestId('energy-refill')).toHaveCount(0)
+
+  // Finished battles are one compact row linking to the profile, not a list (D69).
+  await expect(a.page.getByTestId('group-finished')).toHaveCount(0)
+  const finished = a.page.getByTestId('finished-link')
+  await expect(finished).toHaveText(/Finished battles \(\d+\)/)
+  await expect(finished).toHaveAttribute('href', `/u/${nameA}`)
 
   // B sees it as cancelled and can no longer accept it.
   await b.page.goto(battleUrl)
@@ -665,7 +679,14 @@ test('Rapid Fire: one round, blind accept with the clock starting at once, no bo
 
   // A failed earlier run can leave a Rapid Fire invite open; B declines it.
   const loaded = () =>
-    expect(b.page.getByTestId('my-battles').getByTestId('battle-card').first().or(b.page.getByText('No battles yet'))).toBeVisible({
+    expect(
+      b.page
+        .getByTestId('my-battles')
+        .getByTestId('battle-card')
+        .first()
+        .or(b.page.getByTestId('finished-link'))
+        .or(b.page.getByText('No battles yet')),
+    ).toBeVisible({
       timeout: 20_000,
     })
   await b.page.goto('/home')
@@ -836,4 +857,40 @@ test('online now: a past opponent shows while their app is open and leaves when 
   await expect(a.page.getByTestId('send-challenge')).toBeEnabled()
   // No "last seen" anywhere on the form.
   await expect(a.page.getByTestId('challenge-form')).not.toContainText(/last seen/i)
+})
+
+test('settings: username, email toggle saved on the server, how to play link (D69)', async ({ users }) => {
+  test.setTimeout(60_000)
+  const [c] = await users(['Voter C'])
+  const nameC = await ensureUsername(c.page, c.email)
+  await c.page.goto('/settings')
+  await expect(c.page.getByTestId('settings-username')).toHaveText(`@${nameC}`, { timeout: 20_000 })
+  await expect(c.page.getByTestId('settings-email')).toHaveText(c.email)
+  await expect(c.page.getByTestId('energy-bar')).toBeVisible()
+  await expect(c.page.getByTestId('settings-delete-note')).toContainText('To delete your account, contact')
+
+  const toggle = c.page.getByTestId('email-toggle')
+  await expect(toggle).toBeEnabled({ timeout: 20_000 })
+  // Start from on, whatever an earlier run left.
+  if ((await toggle.getAttribute('aria-checked')) !== 'true') {
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  }
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  // Stored server-side: still off after a reload.
+  await c.page.reload()
+  await expect(c.page.getByTestId('email-toggle')).toHaveAttribute('aria-checked', 'false', { timeout: 20_000 })
+  // Clients can't write it directly; only the action validates and saves.
+  const bad = await callAction(c.page, 'setEmailPrefs', { emailsOn: 'nope' })
+  expect(bad.success).toBe(false)
+  // Back on, so the account keeps the default.
+  await c.page.getByTestId('email-toggle').click()
+  await expect(c.page.getByTestId('email-toggle')).toHaveAttribute('aria-checked', 'true')
+  await c.page.reload()
+  await expect(c.page.getByTestId('email-toggle')).toHaveAttribute('aria-checked', 'true', { timeout: 20_000 })
+
+  await c.page.getByTestId('settings-how-to-play').click()
+  await expect(c.page).toHaveURL(/\/how-to-play$/)
+  await expect(c.page.getByRole('heading', { name: 'How to play', level: 1 })).toBeVisible()
 })

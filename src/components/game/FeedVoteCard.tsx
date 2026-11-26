@@ -215,7 +215,7 @@ function Reel({ battleId, state, roundNumber, viewerId }: { battleId: string; st
                   </span>
                 ) : !signedIn ? (
                   <button type="button" className={cn(pill, 'bg-primary text-primary-foreground')} onClick={() => setShowAuth(true)} tabIndex={i === index ? 0 : -1}>
-                    Sign in to vote
+                    Sign in or sign up to vote
                   </button>
                 ) : (
                   <button

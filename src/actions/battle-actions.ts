@@ -91,6 +91,18 @@ const setUsername: ActionHandler<Env> = async (ctx) => {
   return { success: true, data: { username: raw } }
 }
 
+// ─── Email preferences (D69) ────────────────────────────────────────────────
+
+/** Turns the challenge and result emails on or off for the caller. */
+const setEmailPrefs: ActionHandler<Env> = async (ctx) => {
+  const auth = signedIn(ctx)
+  if (!auth.ok) return toActionResult(auth)
+  if (typeof ctx.params.emailsOn !== 'boolean') return toActionResult(err('bad_request', 'emailsOn must be true or false.'))
+  const r = await ctx.tools.create('email_prefs', { userId: ctx.userId, emails: ctx.params.emailsOn ? 'on' : 'off' }, ctx.userId)
+  if (!r.success) return toActionResult(err('storage_error', r.error))
+  return { success: true, data: { emailsOn: ctx.params.emailsOn } }
+}
+
 // ─── Videos ─────────────────────────────────────────────────────────────────
 
 /**
@@ -470,6 +482,7 @@ const devSetMyEnergy: ActionHandler<Env> = async (ctx) => {
 
 export const battleActions: Record<string, ActionHandler<Env>> = {
   setUsername,
+  setEmailPrefs,
   challenge,
   acceptChallenge,
   declineChallenge,

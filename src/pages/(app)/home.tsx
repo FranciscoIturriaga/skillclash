@@ -1,12 +1,13 @@
 /**
  * Home feed: "Voting now" for everyone, plus "My battles" grouped by what the
- * signed-in player needs to do (invites, your turn, in progress, sent, finished).
+ * signed-in player needs to do (invites, your turn, in progress, sent). Finished
+ * battles are one link row to the player's profile (D69).
  */
 
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useNavigationType } from 'react-router-dom'
 import { AuthOverlay, useAuth, useQuery } from 'deepspace'
-import { ChevronDown, Flame, Swords, Trophy, Zap } from 'lucide-react'
+import { ChevronDown, ChevronRight, Flame, HelpCircle, Swords, Trophy, Zap } from 'lucide-react'
 import { Button, EmptyState, buttonVariants, cn } from '@/components/ui'
 import type { BattleRowData, MyBucket } from '../../battle/view'
 import { bucketFor, sortVotingNow } from '../../battle/view'
@@ -24,7 +25,6 @@ const GROUPS: Array<{ bucket: MyBucket; title: string }> = [
   { bucket: 'my_turn', title: 'Your turn' },
   { bucket: 'in_progress', title: 'In progress' },
   { bucket: 'sent', title: 'Sent challenges' },
-  { bucket: 'finished', title: 'Finished' },
 ]
 
 export default function HomePage() {
@@ -53,9 +53,19 @@ function SignedInHeader() {
   // banner growing (D66; checked at 375px in the browser spec).
   return (
     <section className="bg-arena overflow-hidden rounded-2xl border border-border p-4" data-testid="home-hero">
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-        {username ? `@${username}` : 'Player'}
-      </p>
+      {/* How to play shares the username line so the hero doesn't grow (D66, D69). */}
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="truncate text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+          {username ? `@${username}` : 'Player'}
+        </p>
+        <Link
+          to="/how-to-play"
+          data-testid="hero-how-to-play"
+          className="shrink-0 text-xs font-semibold text-foreground underline underline-offset-2 hover:text-primary"
+        >
+          How to play
+        </Link>
+      </div>
       <h1 className="font-display mt-1 text-4xl font-extrabold uppercase italic leading-none">Ready to clash?</h1>
       <p className="mt-1 text-xs leading-4 text-muted-foreground">Three rounds. Twenty-second clips. The crowd decides.</p>
       <EnergyBar view={energy} className="mt-3" />
@@ -87,9 +97,14 @@ function SignedOutHero() {
       <p className="mt-3 text-sm text-muted-foreground">
         Challenge anyone to a 3-round skill battle. Both of you film an attempt, then everyone votes.
       </p>
-      <Button size="lg" className="mt-5 font-semibold" onClick={() => setShowAuth(true)}>
-        Sign in to battle
-      </Button>
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        <Button size="lg" className="font-semibold" onClick={() => setShowAuth(true)}>
+          Sign in or sign up to battle
+        </Button>
+        <Link to="/how-to-play" className={cn(buttonVariants({ size: 'lg', variant: 'outline' }), 'font-semibold')} data-testid="hero-how-to-play">
+          <HelpCircle className="size-4" aria-hidden /> How to play
+        </Link>
+      </div>
       {showAuth && <AuthOverlay onClose={() => setShowAuth(false)} />}
     </section>
   )
@@ -119,6 +134,8 @@ function MyBattles({ userId }: { userId: string }) {
   }, [asA.records, asB.records, userId])
 
   const total = [...grouped.values()].reduce((n, l) => n + l.length, 0)
+  const finished = grouped.get('finished')?.length ?? 0
+  const { username } = useMyUsername()
 
   return (
     <section data-testid="my-battles" className="space-y-6">
@@ -132,15 +149,15 @@ function MyBattles({ userId }: { userId: string }) {
           action={{ label: 'Start your first battle', onClick: () => navigate('/challenge') }}
         />
       ) : (
-        GROUPS.map(({ bucket, title }) => {
+        <>
+        {GROUPS.map(({ bucket, title }) => {
           const list = grouped.get(bucket)
           if (!list?.length) return null
-          const shown = bucket === 'finished' ? list.slice(0, 10) : list
           return (
             <div key={bucket} data-testid={`group-${bucket}`}>
               <SectionTitle count={list.length}>{title}</SectionTitle>
               <div className="space-y-3">
-                {shown.map(({ id, row }) =>
+                {list.map(({ id, row }) =>
                   bucket === 'sent' ? (
                     // The cancel control sits outside the card's link (no button inside an <a>).
                     <div key={id} className="space-y-2" data-testid="sent-item">
@@ -160,7 +177,21 @@ function MyBattles({ userId }: { userId: string }) {
               </div>
             </div>
           )
-        })
+        })}
+        {finished > 0 && username && (
+          // Past battles live on the profile; home keeps one compact row (D69).
+          <Link
+            to={`/u/${username}`}
+            data-testid="finished-link"
+            className="flex min-h-11 items-center justify-between rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:border-primary/60 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          >
+            <span>
+              Finished battles <span className="text-muted-foreground">({finished})</span>
+            </span>
+            <ChevronRight className="size-4 text-muted-foreground" aria-hidden />
+          </Link>
+        )}
+        </>
       )}
     </section>
   )
