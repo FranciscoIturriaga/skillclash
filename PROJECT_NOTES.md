@@ -8,11 +8,12 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 ## Current status
 - MVP is built and deployed: state machine, schemas and server actions, cron sweep (confirmed running in prod logs), files guard, full arena-themed UI, two emails (challenge, battle result).
 - **Set-and-match rules (D53, D54):** setters film first in rounds 1–2 (A with the challenge, B with the accept); blind invite; unrevealed skills live on hidden setter submission rows, not the public battle state. Old active battles finish under the old rules; old open invites can't be accepted.
-- `npx deepspace test run all --port 5181`: 19/19 pass (155 unit tests), incl. a Settings test (Voter C) and a signed-out /how-to-play smoke test; `collab.spec.ts` API-status test flaked once under load (100 ms loading text), passed on rerun: online presence (D67), energy at 375px, a short Rapid Fire battle, and `tests/battle.spec.ts` (3-user set-and-match battle with network-level leak checks and feed reel swipe/arrow/vote checks, ~1.6 min, plus a 375px layout check; and a cancel-invite test that re-challenges the pair). 
+- `npx deepspace test run all --port 5181`: 20/20 browser tests and 155 unit tests pass (last run 2026-11-25, no flakes). Covers Settings (Voter C), signed-out /how-to-play and reload-splash smoke tests, online presence (D67), energy at 375px, a short Rapid Fire battle, and `tests/battle.spec.ts` (3-user set-and-match battle with network-level leak checks and feed reel checks, a 375px layout check, and a cancel-invite test that re-challenges the pair). `collab.spec.ts` API-status test has flaked once under load.
 - Test accounts (by name in the spec): "Player A" = fi-skillclash-a@deepspace.test, "Player B" = fi-skillclash-b@deepspace.test, "Voter C" = voter-c@deepspace.test (stored in `~/.deepspace/test-accounts.json`).
 - Demo battle route is deployed but the live demo is **not seeded** (secret `DEMO_SEED_TOKEN` not set yet; see Next steps).
 - Email delivery not yet confirmed in production logs (no real battle finished on prod). Test-mode battles send no email (D48).
-- **Latest deploy: a4c036e (2026-11-25), pushed to main**, live bundle verified: past-battle summary line + top-bar back arrow (D70). Earlier: 789432e (Settings, How to play, D69), 79d2ad4 (Reels feed, D68), c72ff7a (presence, D67), cbdb5a5 (energy, D66), cab6276 (Rapid Fire, D63–D65), 1b4ff7f (Voting now heading jump), 294c7bc (window scrolling, camera inputs), 8349507, 045ced7, af741ed, dcaf8e9.
+- **Latest deploy: 58b2e65 (2026-11-25), pushed to main**: reload splash + finished battles removed from home (D71); splash verified in live HTML. Earlier: a4c036e (past summary, back arrow, D70), 789432e (Settings, How to play, D69), 79d2ad4 (Reels feed, D68), c72ff7a (presence, D67), cbdb5a5 (energy, D66), cab6276 (Rapid Fire, D63–D65).
+- Feature work is declared done (user, 2026-11-25); remaining work is phone checks and the Next steps list.
 - **Not yet checked by a person:** everything in Next steps marked "On a phone", the D55 fix on a fully reloaded tab, and video playback in desktop Chrome (D43).
 - Decisions D1–D71 in `docs/DECISIONS.md`.
 
@@ -27,7 +28,6 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - 2026-11-25: Phone layout (D59, D60): "Voting now" cards are one screen tall (`h-dvh` shell, `main` is a size container, list `h-[100cqh]`), the list snaps vertically on its own, the video track snaps one slide per swipe, and the video shrinks to fit at 9:16. `ScrollManager` resets `<main>` to the top on new navigations, sign-in and keyboard close, and restores it on back/forward. Hero copy: "Twenty-second clips".
 - 2026-11-25: iOS zoom fix: an unlayered rule in `styles.css` forces 16px on inputs/textarea/select on phones and touch devices (the SDK sign-in overlay uses 14px `text-sm`); viewport zoom untouched. Profile stat tiles are equal height with the number pinned to the bottom. Spec checks both at 375px.
 - 2026-11-25: Stored player stats (D56): `stats_entries` ledger (uniqueOn battleId+playerId) + public `player_stats`, written from the `battle_completed` hook and the repair path; one-time backfill from the cron (marker `app_migrations/stats-backfill-v1`). Profile reads `player_stats`. "Voting now" cards are reels with vote-from-feed (D57), sorted by combined points then deadline (D58).
-- 2026-11-25: D55: the accept-panel bug report was a stale tab (old JS, new server). Added a production-only "SkillClash was updated, Reload" banner, compact one-line locked rounds with per-viewer copy (`lockedRoundCopy`), and new accept panel copy.
 
 ## Decisions
 - **GitHub is the app's source, permanently.** Never run `npx deepspace push/pull/clone`; they refuse with `source_managed_by_github`. Deploys ship the local working tree, including uncommitted files, so commit before `npx deepspace deploy`.
@@ -51,6 +51,8 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - **Invites:** cancel (challenger only) and expiry (`inviteExpiresAt` in state; `inviteDeadline()` falls back to createdAt + window for old rows) both free the pair rule. No emails for either (D50, D51).
 - **Presence (D67):** use `useOnline()` from `src/components/game/presence.tsx` (SDK presence room). Don't use `usePresence`: in SDK 0.44.2 its roster never refreshes `lastSeenAt` for other tabs. Never list everyone online and never show last-seen times.
 - **Email opt-out (D69):** `email_prefs` (id = user id, `emails: 'on'|'off'`, no row = on), written only by `setEmailPrefs`. Any new email must check `person().emailsOn`.
+- **Reload splash (D71):** `#splash` lives in `index.html` after `#root` (never inside it: prerender.ts fills the exact empty `<div id="root"></div>`) and is hidden purely by CSS `#root:not(:empty)~#splash`. Keep it inline and under 1KB.
+- **Home shows no finished battles (D71):** past battles live only on the profile (`/u/<name>`). Don't add a finished list or link back to home.
 - **Usernames:** every signed-in user must pick one (UsernameGate in `src/components/game/usernames.tsx`). Profiles live at `/u/<username>`.
 - Out of scope for MVP: Stripe, followers, DMs, tournaments, rankings.
 
