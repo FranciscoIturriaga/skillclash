@@ -14,9 +14,10 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - Email delivery not yet confirmed in production logs (no real battle finished on prod). Test-mode battles send no email (D48).
 - **Latest deploy: c72ff7a (2026-11-25), pushed to main**, live bundle verified: online presence (D67). Earlier: cbdb5a5 (energy, D66), cab6276 (Rapid Fire, D63–D65), 1b4ff7f (Voting now heading jump), 294c7bc (window scrolling, camera inputs), 8349507, 045ced7, af741ed, dcaf8e9.
 - **Not yet checked by a person:** everything in Next steps marked "On a phone", the D55 fix on a fully reloaded tab, and video playback in desktop Chrome (D43).
-- Decisions D1–D67 in `docs/DECISIONS.md`.
+- Decisions D1–D68 in `docs/DECISIONS.md`.
 
 ## Recent changes
+- 2026-11-25: Reels-style feed cards (D68): video fills the card (object-contain over a blurred canvas-frame backdrop), top gradient "Round N · Voting · m:ss" + skill (links to battle), bottom per-slide "@name" chip + "Vote" pill ("✓ Voted @name" after), mute icon, two dots, invisible edge tap zones + sr-only prev/next. No score or label row.
 - 2026-11-25: Online presence (D67): app-wide `usePresenceRoom('online')` (`src/components/game/presence.tsx`); challenge form shows "Online now" (past opponents online, most recent first, max 8, `src/battle/opponents.ts`), green dots in search, Rapid Fire offline warning (soft).
 - 2026-11-25: Energy (D66): max 5, challenge costs 1 (not demo), refund on decline/cancel/expire, +1 to the winner, +1 every 5h below 5 computed on read. `energy_entries` ledger (uniqueOn key) + public `player_energy`; bar in the home hero and challenge form; disabled "Next energy in …" at 0. Dev-only `devSetMyEnergy` action for specs.
 - 2026-11-25: Rapid Fire mode (D63): 1 round, 5 min invite, 5 min to match, 15 min vote, no bonus; rounds/windows/bonus are mode config. Pair rule is per mode (D64). Owner-only seeded demo battle (D65, `scripts/seed-demo.sh`). Mode badge on cards and battle page.
@@ -40,7 +41,7 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - **Setter rules (D53):** `state.rules = 2` marks new battles. Never put an unrevealed skill in the battle state: the server passes it into the action that opens the round (`accept.round1Skill`, `nextSkill`). Battles without `rules` are legacy (D54).
 - **Stats (D56):** never increment `player_stats`; write a ledger row then recount (`recordBattleStats` in `src/battle/stats.ts`). Any new completion path must call it.
 - **Scrolling (D59, D60):** the window is the only vertical scroller; never add an inner `overflow-y` scroller (nested scrollers broke iOS Safari). Top bar is sticky; resets go through `resetScroll()` (`window.scrollTo`, instant) in `src/components/ScrollManager.tsx`.
-- **Feed card height (D59):** slots are `.feed-snap` (`100svh - --app-header-h`, `y proximity` snap on `<html>`); anything added to a card must shrink the video area (`flex-1 min-h-0`), never push the vote button off screen.
+- **Feed card height (D59, D68):** slots are `.feed-snap` (`100svh - --app-header-h`, `y proximity` snap on `<html>`). Since D68 everything on a card is an overlay on the full-bleed video; anything new must fit the top or bottom gradient without overlapping the dots or the vote row.
 - **Video inputs (D61):** `capture="environment"` on `VideoPicker`; friction only, not anti-cheat.
 - **Locked rounds** are one-line rows; their copy comes from `lockedRoundCopy()` in `src/battle/view.ts` and is worded per viewer (D55).
 - **Stale tabs:** `src/components/UpdateBanner.tsx` (prod only) compares the loaded `/assets/index-*.js` with the live one and offers Reload; it never forces a reload (D55).
@@ -53,6 +54,7 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - Out of scope for MVP: Stripe, followers, DMs, tournaments, rankings.
 
 ## Next steps
+- [ ] On a phone (SE-size and larger): Reels-style feed cards (D68): blurred backdrop visible beside a portrait/landscape clip, text readable over a bright clip, edge taps switch videos, middle tap pauses, mute icon works, vote → "✓ Voted @name" on both slides.
 - [ ] On two phones (accounts that have battled before): with B's app open, A's challenge form shows B under "Online now" (tap fills the field) and a green dot in search; close B's app → B leaves within seconds; Rapid Fire to offline B shows the soft warning and still sends; reopen B → back without reload; check iPhone backgrounding drops/restores B (D67).
 - [ ] On a phone: energy bar in the home hero at 5/5 (hero no taller), send a challenge → 4/5 + "Next refill in 4h 59m", cancel → 5/5 live; decline as B refunds A; win → +1; at 0 the button reads "Next energy in …" and the form shows the out-of-energy line (D66).
 - [ ] **Seed the live demo battle (not done yet):** the agent's shell wasn't allowed to set secrets. Run `npx deepspace secrets set DEMO_SEED_TOKEN --stdin < ~/.deepspace/skillclash-demo-token`, then `scripts/seed-demo.sh` (expect HTTP 200 with a battleId). If the route still 404s right after setting the secret, redeploy.

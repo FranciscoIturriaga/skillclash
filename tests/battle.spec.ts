@@ -320,22 +320,32 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
   await c.page.setViewportSize({ width: 375, height: 667 }) // iPhone SE
   await Promise.all([
     (async () => {
-      // C: one video at a time, 1/2 → 2/2 by arrow and by swipe, then votes from the feed.
+      // C: one video at a time, 1 → 2 by edge tap, keyboard and swipe, then votes from the feed (D68).
       const card = feedCard(c.page)
       await expect(card).toBeVisible({ timeout: 20_000 })
       await showCard(c.page)
       const indicator = card.getByTestId('reel-indicator')
-      await expect(indicator).toHaveText('1/2')
-      await expect(card.getByTestId('reel-slide-a').getByTestId('reel-label')).toHaveText(`@${nameA}'s video`)
+      await expect(indicator).toHaveText('1 of 2')
+      await expect(card.getByTestId('reel-slide-a').getByTestId('reel-chip')).toHaveText(`@${nameA}`)
+      // No score and no separate label row on the card (D68).
+      await expect(card.getByTestId('reel-header')).not.toContainText('–')
+      await expect(card.getByTestId('reel-header')).toContainText(/Round 1\s*·\s*Voting/)
+      await expect(card.getByTestId('reel-skill')).not.toBeEmpty()
+      await expect(card.getByTestId('battle-card')).toHaveCount(0)
       await expect(card.getByTestId('reel-video-a')).toHaveAttribute('src', /videos\//)
       // The off-screen video hasn't loaded yet (D57).
       expect(await card.getByTestId('reel-video-b').getAttribute('src')).toBeNull()
-      await card.getByTestId('reel-next').click()
-      await expect(indicator).toHaveText('2/2')
-      await expect(card.getByTestId('reel-slide-b').getByTestId('reel-label')).toHaveText(`@${nameB}'s video`)
+      // Invisible tap zone on the right edge → next video.
+      const slideA = card.getByTestId('reel-slide-a')
+      const sa = (await slideA.boundingBox())!
+      await slideA.click({ position: { x: sa.width - 15, y: sa.height / 2 } })
+      await expect(indicator).toHaveText('2 of 2')
+      await expect(card.getByTestId('reel-slide-b').getByTestId('reel-chip')).toHaveText(`@${nameB}`)
       await expect(card.getByTestId('reel-video-b')).toHaveAttribute('src', /videos\//)
-      await card.getByTestId('reel-prev').click()
-      await expect(indicator).toHaveText('1/2')
+      // Keyboard: the visually hidden "Previous video" button.
+      await card.getByRole('button', { name: 'Previous video' }).focus()
+      await c.page.keyboard.press('Enter')
+      await expect(indicator).toHaveText('1 of 2')
       // A touch gesture sent while the arrow's smooth scroll is still running
       // is swallowed by it, so wait until the track sits still on a slide.
       const track = card.getByTestId('reel-track')
@@ -366,10 +376,10 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
           speed: 2000,
         })
       await swipe(-Math.round(box.width * 0.8))
-      await expect(indicator).toHaveText('2/2')
+      await expect(indicator).toHaveText('2 of 2')
       await settledAt(1)
       await swipe(Math.round(box.width * 0.8))
-      await expect(indicator).toHaveText('1/2')
+      await expect(indicator).toHaveText('1 of 2')
       await settledAt(0)
       // A vertical swipe that starts on the video scrolls the page, not the reel.
       const yBefore = await c.page.evaluate(() => window.scrollY)
@@ -383,27 +393,30 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
         speed: 1500,
       })
       await expect.poll(() => c.page.evaluate(() => window.scrollY)).toBeLessThan(yBefore - 100)
-      await expect(indicator).toHaveText('1/2')
+      await expect(indicator).toHaveText('1 of 2')
       await showCard(c.page)
       await settledAt(0)
-      // Vote for A from the feed: "You voted", and both buttons lock.
+      // Vote for A from the feed: both slides read "Voted @A" and lock.
+      await expect(card.getByTestId('reel-vote-a')).toHaveText('Vote')
       await card.getByTestId('reel-vote-a').click()
-      await expect(card.getByTestId('reel-vote-a')).toHaveText(/You voted/, { timeout: 15_000 })
+      await expect(card.getByTestId('reel-vote-a')).toHaveText(`Voted @${nameA}`, { timeout: 15_000 })
+      await expect(card.getByTestId('reel-vote-b')).toHaveText(`Voted @${nameA}`)
       await expect(card.getByTestId('reel-vote-a')).toBeDisabled()
       await expect(card.getByTestId('reel-vote-b')).toBeDisabled()
-      await expect(card.getByTestId('reel-you-voted')).toContainText(`@${nameA}`)
+      await expect(card.getByTestId('reel-you-voted')).toHaveCount(0)
     })(),
     (async () => {
       // A (a competitor) sees the card but no vote button on their own battle.
       const card = feedCard(aFeed)
       await expect(card).toBeVisible({ timeout: 20_000 })
-      await expect(card.getByTestId('reel-competitor')).toBeVisible()
+      await expect(card.getByTestId('reel-slide-a').getByTestId('reel-competitor')).toHaveText('Your battle')
       await expect(card.locator('[data-testid^="reel-vote-"]')).toHaveCount(0)
     })(),
   ])
   await aFeed.close()
   // The whole card fits one phone screen with the vote button visible, at
-  // iPhone SE and iPhone 14 sizes ("You voted" line included, the tallest case).
+  // iPhone SE and iPhone 14 sizes; overlays don't overlap and tap targets are
+  // at least 44 px (D68).
   expect(await verticalScrollers(c.page)).toEqual([])
   for (const size of [{ width: 375, height: 667 }, { width: 390, height: 844 }]) {
     await c.page.setViewportSize(size)
@@ -412,13 +425,29 @@ test('full battle: challenge, accept, submit, vote rules, results', async ({ use
     const bar = (await c.page.getByTestId('app-header').boundingBox())!
     expect(bar.y, `sticky top bar at ${size.width}x${size.height}`).toBe(0)
     const cardBox = (await card.boundingBox())!
-    const header = (await card.getByTestId('battle-card').boundingBox())!
+    const at = `${size.width}x${size.height}`
+    const header = (await card.getByTestId('reel-header').boundingBox())!
+    const mute = (await card.getByTestId('reel-mute').boundingBox())!
+    const chip = (await card.getByTestId('reel-slide-a').getByTestId('reel-chip').boundingBox())!
     const button = (await card.getByTestId('reel-vote-a').boundingBox())!
+    const dots = (await card.getByTestId('reel-dots').boundingBox())!
     const video = (await card.getByTestId('reel-slide-a').getByTestId('reel-video-box').boundingBox())!
-    expect(header.y, `header at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(bar.y + bar.height - 1)
-    expect(button.y + button.height, `vote button at ${size.width}x${size.height}`).toBeLessThanOrEqual(size.height)
+    expect(header.y, `header at ${at}`).toBeGreaterThanOrEqual(bar.y + bar.height - 1)
+    expect(button.y + button.height, `vote button at ${at}`).toBeLessThanOrEqual(size.height)
     expect(cardBox.y + cardBox.height).toBeLessThanOrEqual(size.height + 1)
-    expect(Math.abs(video.width / video.height - 9 / 16)).toBeLessThan(0.02)
+    // The video area fills the card; the video is never cropped.
+    expect(Math.abs(video.width - cardBox.width), `video width at ${at}`).toBeLessThan(3)
+    expect(Math.abs(video.height - cardBox.height), `video height at ${at}`).toBeLessThan(3)
+    expect(await card.getByTestId('reel-video-a').evaluate((el) => getComputedStyle(el).objectFit)).toBe('contain')
+    // Nothing overlaps: header and mute above the dots, dots above the bottom row, chip left of the button.
+    expect(header.y + header.height, `header vs dots at ${at}`).toBeLessThanOrEqual(dots.y)
+    expect(mute.y + mute.height, `mute vs dots at ${at}`).toBeLessThanOrEqual(dots.y)
+    expect(header.x + header.width, `header vs mute at ${at}`).toBeLessThanOrEqual(mute.x + 1)
+    expect(dots.y + dots.height, `dots vs button at ${at}`).toBeLessThanOrEqual(Math.min(button.y, chip.y))
+    expect(chip.x + chip.width, `chip vs button at ${at}`).toBeLessThanOrEqual(button.x)
+    for (const [n, b] of [['vote', button], ['mute', mute], ['header', header]] as const) {
+      expect(b.height, `${n} tap target at ${at}`).toBeGreaterThanOrEqual(44)
+    }
   }
   // Tapping the "Voting now" heading smooth-scrolls the first card right under
   // the top bar (D62).
