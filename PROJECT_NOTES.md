@@ -12,7 +12,7 @@ Stack: DeepSpace SDK 0.44.2 (Vite + React + TypeScript + Tailwind v4 frontend, C
 - Test accounts (by name in the spec): "Player A" = fi-skillclash-a@deepspace.test, "Player B" = fi-skillclash-b@deepspace.test, "Voter C" = voter-c@deepspace.test (stored in `~/.deepspace/test-accounts.json`).
 - Demo battle route is deployed but the live demo is **not seeded** (secret `DEMO_SEED_TOKEN` not set yet; see Next steps).
 - Email delivery not yet confirmed in production logs (no real battle finished on prod). Test-mode battles send no email (D48).
-- **Latest deploy: c72ff7a (2026-11-25), pushed to main**, live bundle verified: online presence (D67). Earlier: cbdb5a5 (energy, D66), cab6276 (Rapid Fire, D63–D65), 1b4ff7f (Voting now heading jump), 294c7bc (window scrolling, camera inputs), 8349507, 045ced7, af741ed, dcaf8e9.
+- **Latest deploy: 79d2ad4 (2026-11-25), pushed to main**, live bundle verified: Reels-style feed cards (D68). Earlier: c72ff7a (presence, D67), cbdb5a5 (energy, D66), cab6276 (Rapid Fire, D63–D65), 1b4ff7f (Voting now heading jump), 294c7bc (window scrolling, camera inputs), 8349507, 045ced7, af741ed, dcaf8e9.
 - **Not yet checked by a person:** everything in Next steps marked "On a phone", the D55 fix on a fully reloaded tab, and video playback in desktop Chrome (D43).
 - Decisions D1–D68 in `docs/DECISIONS.md`.
 
